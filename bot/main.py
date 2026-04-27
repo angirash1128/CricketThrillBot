@@ -80,7 +80,6 @@ ALERT_OPTIONS = [
 # ─────────────────────────────────────────
 
 # SOS state tracking
-# Format: { user_id: { "message": ..., "count": ..., "active": ... } }
 sos_state = {}
 
 # Current match state
@@ -92,11 +91,9 @@ current_match = {
 }
 
 # User onboarding state tracking
-# Format: { user_id: "step_name" }
 user_states = {}
 
 # Temporary feedback storage
-# Format: { user_id: { "rating": ..., "step": ... } }
 feedback_temp = {}
 
 # ─────────────────────────────────────────
@@ -263,6 +260,8 @@ def handle_start(message):
 @bot.callback_query_handler(func=lambda c: c.data == "setup_start")
 def setup_start(call):
     """Onboarding step 1: Favorite team chunao"""
+    bot.answer_callback_query(call.id)
+
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     buttons = [
         types.InlineKeyboardButton(team, callback_data=f"team_{i}")
@@ -282,6 +281,8 @@ def setup_start(call):
 @bot.callback_query_handler(func=lambda c: c.data.startswith("team_"))
 def handle_team_selection(call):
     """Team save karo aur alert preference pucho"""
+    bot.answer_callback_query(call.id)
+
     user_id = call.from_user.id
     team_index = int(call.data.split("_")[1])
     selected_team = IPL_TEAMS[team_index]
@@ -317,6 +318,8 @@ def handle_team_selection(call):
 @bot.callback_query_handler(func=lambda c: c.data.startswith("pref_"))
 def handle_alert_preference(call):
     """Alert preference save karo aur setup complete karo"""
+    bot.answer_callback_query(call.id)
+
     user_id = call.from_user.id
     pref_index = int(call.data.split("_")[1])
     selected_pref = ALERT_OPTIONS[pref_index]
@@ -346,7 +349,7 @@ def handle_alert_preference(call):
         f"✅ Favourite Team: {team}\n"
         f"✅ Alert Preference: {selected_pref}\n\n"
         f"🔔 You are now subscribed to IPL 2026 alerts!\n\n"
-        f"📱 Join our WhatsApp Channel for more cricket updates:",
+        f"📱 Join our WhatsApp Channel for more updates:",
         call.message.chat.id,
         call.message.message_id,
         reply_markup=keyboard,
@@ -369,9 +372,13 @@ def handle_main_menu(call):
     user_id = call.from_user.id
     name = call.from_user.first_name or "Cricket Fan"
 
+    # Callback answer karo pehle - loading indicator hatao
+    bot.answer_callback_query(call.id)
+
     bot.send_message(
         user_id,
-        f"🏠 <b>Main Menu</b>\n\nHi {name}! What would you like to do?",
+        f"🏠 <b>Main Menu</b>\n\n"
+        f"Hi <b>{name}</b>! What would you like to do?",
         reply_markup=get_bottom_menu(),
         parse_mode="HTML"
     )
@@ -391,11 +398,14 @@ def handle_live_match(message):
     if not match:
         keyboard = types.InlineKeyboardMarkup()
         keyboard.row(
-            types.InlineKeyboardButton("⭐ Give Feedback", callback_data="feedback_start"),
-            types.InlineKeyboardButton("⚙️ Settings", callback_data="settings")
+            types.InlineKeyboardButton(
+                "⭐ Give Feedback", callback_data="feedback_start"),
+            types.InlineKeyboardButton(
+                "⚙️ Settings", callback_data="settings")
         )
         keyboard.row(
-            types.InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")
+            types.InlineKeyboardButton(
+                "🏠 Main Menu", callback_data="main_menu")
         )
 
         bot.send_message(
@@ -416,11 +426,14 @@ def handle_live_match(message):
         )
     )
     keyboard.row(
-        types.InlineKeyboardButton("⚙️ Settings", callback_data="settings"),
-        types.InlineKeyboardButton("⭐ Give Feedback", callback_data="feedback_start")
+        types.InlineKeyboardButton(
+            "⚙️ Settings", callback_data="settings"),
+        types.InlineKeyboardButton(
+            "⭐ Give Feedback", callback_data="feedback_start")
     )
     keyboard.row(
-        types.InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")
+        types.InlineKeyboardButton(
+            "🏠 Main Menu", callback_data="main_menu")
     )
 
     bot.send_message(
@@ -436,12 +449,12 @@ def handle_live_match(message):
 @bot.callback_query_handler(func=lambda c: c.data.startswith("subscribe_"))
 def handle_subscribe_match(call):
     """Match alerts subscribe karo"""
+    bot.answer_callback_query(call.id, "✅ Alerts activated!", show_alert=False)
+
     user_id = call.from_user.id
     match_id = call.data.split("_")[1]
 
     update_user_field(user_id, "selected_match_id", match_id)
-
-    bot.answer_callback_query(call.id, "✅ Alerts activated!", show_alert=False)
 
     bot.send_message(
         user_id,
@@ -461,6 +474,7 @@ def handle_feedback_button(message):
 
 @bot.callback_query_handler(func=lambda c: c.data == "feedback_start")
 def handle_feedback_callback(call):
+    bot.answer_callback_query(call.id)
     start_feedback(call.from_user.id, call.message.chat.id)
 
 def start_feedback(user_id, chat_id):
@@ -492,6 +506,8 @@ def start_feedback(user_id, chat_id):
 @bot.callback_query_handler(func=lambda c: c.data.startswith("rate_"))
 def handle_rating(call):
     """Rating save karo"""
+    bot.answer_callback_query(call.id)
+
     user_id = call.from_user.id
     rating = int(call.data.split("_")[1])
 
@@ -510,7 +526,9 @@ def handle_rating(call):
         call.message.message_id
     )
 
-@bot.message_handler(func=lambda m: user_states.get(m.from_user.id) == "awaiting_feedback_text")
+@bot.message_handler(
+    func=lambda m: user_states.get(m.from_user.id) == "awaiting_feedback_text"
+)
 def handle_feedback_text(message):
     """Feedback text save karo"""
     user_id = message.from_user.id
@@ -549,6 +567,7 @@ def handle_settings_button(message):
 
 @bot.callback_query_handler(func=lambda c: c.data == "settings")
 def handle_settings_callback(call):
+    bot.answer_callback_query(call.id)
     show_settings(call.from_user.id, call.message.chat.id)
 
 def show_settings(user_id, chat_id):
@@ -568,10 +587,12 @@ def show_settings(user_id, chat_id):
 
     keyboard = types.InlineKeyboardMarkup()
     keyboard.row(
-        types.InlineKeyboardButton("🏏 Change Favourite Team", callback_data="change_team")
+        types.InlineKeyboardButton(
+            "🏏 Change Favourite Team", callback_data="change_team")
     )
     keyboard.row(
-        types.InlineKeyboardButton("🔔 Change Alert Preference", callback_data="change_pref")
+        types.InlineKeyboardButton(
+            "🔔 Change Alert Preference", callback_data="change_pref")
     )
     keyboard.row(
         types.InlineKeyboardButton(notif_btn, callback_data=notif_cb)
@@ -592,6 +613,7 @@ def show_settings(user_id, chat_id):
 
 @bot.callback_query_handler(func=lambda c: c.data == "change_team")
 def change_team(call):
+    bot.answer_callback_query(call.id)
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     buttons = [
         types.InlineKeyboardButton(team, callback_data=f"newteam_{i}")
@@ -607,6 +629,7 @@ def change_team(call):
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("newteam_"))
 def handle_new_team(call):
+    bot.answer_callback_query(call.id)
     user_id = call.from_user.id
     team_index = int(call.data.split("_")[1])
     selected_team = IPL_TEAMS[team_index]
@@ -620,11 +643,15 @@ def handle_new_team(call):
 
 @bot.callback_query_handler(func=lambda c: c.data == "change_pref")
 def change_pref(call):
+    bot.answer_callback_query(call.id)
     keyboard = types.InlineKeyboardMarkup(row_width=1)
     keyboard.add(
-        types.InlineKeyboardButton("🏏 Only My Team Matches", callback_data="newpref_0"),
-        types.InlineKeyboardButton("🌐 All IPL Matches", callback_data="newpref_1"),
-        types.InlineKeyboardButton("🏆 Big Matches Only", callback_data="newpref_2")
+        types.InlineKeyboardButton(
+            "🏏 Only My Team Matches", callback_data="newpref_0"),
+        types.InlineKeyboardButton(
+            "🌐 All IPL Matches", callback_data="newpref_1"),
+        types.InlineKeyboardButton(
+            "🏆 Big Matches Only", callback_data="newpref_2")
     )
     bot.send_message(
         call.message.chat.id,
@@ -635,6 +662,7 @@ def change_pref(call):
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("newpref_"))
 def handle_new_pref(call):
+    bot.answer_callback_query(call.id)
     user_id = call.from_user.id
     pref_index = int(call.data.split("_")[1])
     selected_pref = ALERT_OPTIONS[pref_index]
@@ -648,6 +676,7 @@ def handle_new_pref(call):
 
 @bot.callback_query_handler(func=lambda c: c.data == "stop_alerts")
 def handle_stop_alerts(call):
+    bot.answer_callback_query(call.id)
     stop_notifications(call.from_user.id)
     bot.send_message(
         call.message.chat.id,
@@ -659,10 +688,12 @@ def handle_stop_alerts(call):
 
 @bot.callback_query_handler(func=lambda c: c.data == "resume_alerts")
 def handle_resume_alerts(call):
+    bot.answer_callback_query(call.id)
     resume_notifications(call.from_user.id)
     bot.send_message(
         call.message.chat.id,
-        "🔔 <b>Alerts Resumed!</b>\n\nYou will now get IPL 2026 alerts. 🏏",
+        "🔔 <b>Alerts Resumed!</b>\n\n"
+        "You will now get IPL 2026 alerts. 🏏",
         reply_markup=get_bottom_menu(),
         parse_mode="HTML"
     )
@@ -676,10 +707,12 @@ def handle_sos_watching(call):
     user_id = call.from_user.id
     if user_id in sos_state:
         sos_state[user_id]["active"] = False
-    bot.answer_callback_query(call.id, "✅ Enjoy the match! 🏏", show_alert=False)
+    bot.answer_callback_query(
+        call.id, "✅ Enjoy the match! 🏏", show_alert=False)
     bot.send_message(
         user_id,
-        "🏏 <b>Enjoy the match!</b>\n\nI will keep alerting you about exciting moments.",
+        "🏏 <b>Enjoy the match!</b>\n\n"
+        "I will keep alerting you about exciting moments.",
         reply_markup=get_bottom_menu(),
         parse_mode="HTML"
     )
@@ -724,8 +757,10 @@ def handle_share(message):
 def handle_help(message):
     keyboard = types.InlineKeyboardMarkup()
     keyboard.row(
-        types.InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu"),
-        types.InlineKeyboardButton("⚙️ Settings", callback_data="settings")
+        types.InlineKeyboardButton(
+            "🏠 Main Menu", callback_data="main_menu"),
+        types.InlineKeyboardButton(
+            "⚙️ Settings", callback_data="settings")
     )
     bot.send_message(
         message.from_user.id,
@@ -788,7 +823,7 @@ def match_poll_loop():
                 current_match["team1"] = match["team1"]
                 current_match["team2"] = match["team2"]
 
-                print(f"🏏 New IPL match: {match['team1']} vs {match['team2']}")
+                print(f"🏏 New match: {match['team1']} vs {match['team2']}")
 
                 announcement = (
                     f"🏏 <b>Match Alert!</b>\n\n"
