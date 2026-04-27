@@ -50,12 +50,14 @@ if not TOKEN:
 
 bot = telebot.TeleBot(TOKEN, skip_pending=True)
 
-
 # ─────────────────────────────────────────
 # CONSTANTS
 # ─────────────────────────────────────────
 
 WHATSAPP_LINK = "https://whatsapp.com/channel/0029VbCxEWIKwqSaq8lHO517"
+
+# Tone file path - bot folder me hai
+TONE_FILE_PATH = os.path.join(os.path.dirname(__file__), "thrill_alert_tone.mp3")
 
 IPL_TEAMS = [
     "Mumbai Indians 🔵",
@@ -76,7 +78,6 @@ ALERT_OPTIONS = [
     "Big Matches Only (Playoffs, Finals, Super Overs)"
 ]
 
-
 # ─────────────────────────────────────────
 # STATE VARIABLES
 # ─────────────────────────────────────────
@@ -85,7 +86,6 @@ sos_state = {}
 current_match = {"match_id": None, "team1": None, "team2": None}
 user_states = {}
 feedback_temp = {}
-
 
 # ─────────────────────────────────────────
 # HELPER: BOTTOM MENU
@@ -101,6 +101,72 @@ def get_bottom_menu():
     keyboard.row("❓ Help")
     return keyboard
 
+# ─────────────────────────────────────────
+# HELPER: SEND TONE
+# ─────────────────────────────────────────
+
+def send_tone_to_user(user_id, chat_id):
+    """
+    User ko tone file bhejo + instructions
+    """
+    try:
+        # Tone file send karo
+        with open(TONE_FILE_PATH, "rb") as audio:
+            bot.send_audio(
+                chat_id,
+                audio,
+                title="Thrill Alert Tone",
+                performer="Thrill Alert",
+                caption="🔔 <b>Your Thrill Alert Tone</b>",
+                parse_mode="HTML"
+            )
+    except Exception as e:
+        print(f"Tone send error: {e}")
+        bot.send_message(
+            chat_id,
+            "⚠️ Tone file load nahi hui. Please try again.",
+            parse_mode="HTML"
+        )
+        return
+
+    # Instructions + buttons
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.row(
+        types.InlineKeyboardButton(
+            "🧪 Send Test Alert",
+            callback_data="tone_test"
+        )
+    )
+    keyboard.row(
+        types.InlineKeyboardButton(
+            "⚙️ Settings",
+            callback_data="settings"
+        ),
+        types.InlineKeyboardButton(
+            "🏠 Main Menu",
+            callback_data="main_menu"
+        )
+    )
+
+    bot.send_message(
+        chat_id,
+        "📲 <b>How to Set Thrill Alert Tone</b>\n\n"
+        "<b>iPhone users:</b>\n"
+        "1. Save this audio to your phone\n"
+        "2. Open this bot chat\n"
+        "3. Tap bot name at top\n"
+        "4. Notifications → Sound\n"
+        "5. Select saved tone\n\n"
+        "<b>Android users:</b>\n"
+        "1. Download this audio\n"
+        "2. Open this bot chat\n"
+        "3. Tap bot name at top\n"
+        "4. Notifications → Custom Sound\n"
+        "5. Select Thrill Alert tone\n\n"
+        "🧪 Tap below to test your alert!",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
 
 # ─────────────────────────────────────────
 # HELPER: BROADCAST
@@ -108,7 +174,6 @@ def get_bottom_menu():
 
 def broadcast_message(text, reply_markup=None):
     users = get_all_active_users()
-
     for user in users:
         try:
             bot.send_message(
@@ -120,7 +185,6 @@ def broadcast_message(text, reply_markup=None):
             time.sleep(0.05)
         except Exception as e:
             print(f"Broadcast failed {user['user_id']}: {e}")
-
 
 # ─────────────────────────────────────────
 # HELPER: SOS
@@ -134,7 +198,6 @@ def send_sos_alert(user_id, message_text):
             callback_data="sos_watching"
         )
     )
-
     try:
         bot.send_message(
             user_id,
@@ -148,7 +211,6 @@ def send_sos_alert(user_id, message_text):
 
 def start_sos_for_all(alert_message):
     users = get_all_active_users()
-
     for user in users:
         uid = user["user_id"]
         sos_state[uid] = {
@@ -169,7 +231,6 @@ def start_sos_for_all(alert_message):
                         sos_state[uid]["active"] = False
 
     threading.Thread(target=sos_loop, daemon=True).start()
-
 
 # ─────────────────────────────────────────
 # /START
@@ -219,7 +280,6 @@ def handle_start(message):
         parse_mode="HTML"
     )
 
-
 # ─────────────────────────────────────────
 # ONBOARDING
 # ─────────────────────────────────────────
@@ -258,15 +318,12 @@ def handle_team_selection(call):
     keyboard = types.InlineKeyboardMarkup(row_width=1)
     keyboard.add(
         types.InlineKeyboardButton(
-            "🏏 Only My Team Matches", callback_data="pref_0"
-        ),
+            "🏏 Only My Team Matches", callback_data="pref_0"),
         types.InlineKeyboardButton(
-            "🌐 All IPL Matches", callback_data="pref_1"
-        ),
+            "🌐 All IPL Matches", callback_data="pref_1"),
         types.InlineKeyboardButton(
             "🏆 Big Matches Only (Playoffs, Finals, Super Overs)",
-            callback_data="pref_2"
-        )
+            callback_data="pref_2")
     )
 
     bot.edit_message_text(
@@ -294,7 +351,14 @@ def handle_alert_preference(call):
     user = get_user(user_id)
     team = user.get("favorite_team", "your team")
 
+    # Setup complete message
     keyboard = types.InlineKeyboardMarkup()
+    keyboard.row(
+        types.InlineKeyboardButton(
+            "🔔 Set Thrill Alert Tone",
+            callback_data="tone_setup"
+        )
+    )
     keyboard.row(
         types.InlineKeyboardButton(
             "📱 Join WhatsApp Channel",
@@ -307,6 +371,7 @@ def handle_alert_preference(call):
         f"✅ Favourite Team: {team}\n"
         f"✅ Alert Preference: {selected_pref}\n\n"
         f"🔔 You are now subscribed to IPL 2026 alerts!\n\n"
+        f"🎵 Set your Thrill Alert tone so you never miss a moment!\n"
         f"📱 Join our WhatsApp Channel for more updates:",
         call.message.chat.id,
         call.message.message_id,
@@ -320,6 +385,45 @@ def handle_alert_preference(call):
         reply_markup=get_bottom_menu()
     )
 
+# ─────────────────────────────────────────
+# TONE SETUP
+# ─────────────────────────────────────────
+
+@bot.callback_query_handler(func=lambda c: c.data == "tone_setup")
+def handle_tone_setup(call):
+    """Tone bhejo aur instructions dikhao"""
+    bot.answer_callback_query(call.id)
+    send_tone_to_user(call.from_user.id, call.message.chat.id)
+
+
+@bot.callback_query_handler(func=lambda c: c.data == "tone_test")
+def handle_tone_test(call):
+    """Test alert bhejo taaki user check kar sake"""
+    bot.answer_callback_query(call.id)
+
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.row(
+        types.InlineKeyboardButton(
+            "🔔 Set Tone Again",
+            callback_data="tone_setup"
+        ),
+        types.InlineKeyboardButton(
+            "🏠 Main Menu",
+            callback_data="main_menu"
+        )
+    )
+
+    bot.send_message(
+        call.message.chat.id,
+        "🧪 <b>Test Alert!</b>\n\n"
+        "🚨 WICKET ALERT!\n"
+        "Player is OUT!\n"
+        "Score: 85/3 | Overs: 12.4\n\n"
+        "⚡ This is how your Thrill Alert will look!\n"
+        "If you heard your tone — you are all set! ✅",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
 
 # ─────────────────────────────────────────
 # MAIN MENU
@@ -352,7 +456,6 @@ def handle_main_menu(call):
         parse_mode="HTML"
     )
 
-
 # ─────────────────────────────────────────
 # LIVE MATCH
 # ─────────────────────────────────────────
@@ -368,18 +471,14 @@ def handle_live_match(message):
         keyboard = types.InlineKeyboardMarkup()
         keyboard.row(
             types.InlineKeyboardButton(
-                "⭐ Give Feedback", callback_data="feedback_start"
-            ),
+                "⭐ Give Feedback", callback_data="feedback_start"),
             types.InlineKeyboardButton(
-                "⚙️ Settings", callback_data="settings"
-            )
+                "⚙️ Settings", callback_data="settings")
         )
         keyboard.row(
             types.InlineKeyboardButton(
-                "🏠 Main Menu", callback_data="main_menu"
-            )
+                "🏠 Main Menu", callback_data="main_menu")
         )
-
         bot.send_message(
             user_id,
             "🏏 <b>No live IPL match right now.</b>\n\n"
@@ -397,11 +496,14 @@ def handle_live_match(message):
         )
     )
     keyboard.row(
-        types.InlineKeyboardButton("⚙️ Settings", callback_data="settings"),
-        types.InlineKeyboardButton("⭐ Give Feedback", callback_data="feedback_start")
+        types.InlineKeyboardButton(
+            "⚙️ Settings", callback_data="settings"),
+        types.InlineKeyboardButton(
+            "⭐ Give Feedback", callback_data="feedback_start")
     )
     keyboard.row(
-        types.InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")
+        types.InlineKeyboardButton(
+            "🏠 Main Menu", callback_data="main_menu")
     )
 
     bot.send_message(
@@ -417,11 +519,11 @@ def handle_live_match(message):
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("subscribe_"))
 def handle_subscribe_match(call):
-    bot.answer_callback_query(call.id, "✅ Alerts activated!", show_alert=False)
+    bot.answer_callback_query(
+        call.id, "✅ Alerts activated!", show_alert=False)
 
     user_id = call.from_user.id
     match_id = call.data.split("_")[1]
-
     update_user_field(user_id, "selected_match_id", match_id)
 
     bot.send_message(
@@ -431,7 +533,6 @@ def handle_subscribe_match(call):
         reply_markup=get_bottom_menu(),
         parse_mode="HTML"
     )
-
 
 # ─────────────────────────────────────────
 # FEEDBACK
@@ -492,7 +593,9 @@ def handle_rating(call):
     )
 
 
-@bot.message_handler(func=lambda m: user_states.get(m.from_user.id) == "awaiting_feedback_text")
+@bot.message_handler(
+    func=lambda m: user_states.get(m.from_user.id) == "awaiting_feedback_text"
+)
 def handle_feedback_text(message):
     user_id = message.from_user.id
     name = message.from_user.first_name or "User"
@@ -503,21 +606,16 @@ def handle_feedback_text(message):
     user_states.pop(user_id, None)
     feedback_temp.pop(user_id, None)
 
-    response = (
+    bot.send_message(
+        user_id,
         "✅ <b>Thank you for your feedback!</b>\n\n"
         "Your response has been saved. 🙏"
         if saved else
         "✅ <b>Thank you for your feedback!</b>\n\n"
-        "We noted your response."
-    )
-
-    bot.send_message(
-        user_id,
-        response,
+        "We noted your response.",
         reply_markup=get_bottom_menu(),
         parse_mode="HTML"
     )
-
 
 # ─────────────────────────────────────────
 # SETTINGS
@@ -551,19 +649,22 @@ def show_settings(user_id, chat_id):
     keyboard = types.InlineKeyboardMarkup()
     keyboard.row(
         types.InlineKeyboardButton(
-            "🏏 Change Favourite Team", callback_data="change_team"
-        )
+            "🏏 Change Favourite Team", callback_data="change_team")
     )
     keyboard.row(
         types.InlineKeyboardButton(
-            "🔔 Change Alert Preference", callback_data="change_pref"
-        )
+            "🔔 Change Alert Preference", callback_data="change_pref")
     )
     keyboard.row(
         types.InlineKeyboardButton(notif_btn, callback_data=notif_cb)
     )
     keyboard.row(
-        types.InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")
+        types.InlineKeyboardButton(
+            "🎵 Set Thrill Alert Tone", callback_data="tone_setup")
+    )
+    keyboard.row(
+        types.InlineKeyboardButton(
+            "🏠 Main Menu", callback_data="main_menu")
     )
 
     bot.send_message(
@@ -580,14 +681,12 @@ def show_settings(user_id, chat_id):
 @bot.callback_query_handler(func=lambda c: c.data == "change_team")
 def change_team(call):
     bot.answer_callback_query(call.id)
-
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     buttons = [
         types.InlineKeyboardButton(team, callback_data=f"newteam_{i}")
         for i, team in enumerate(IPL_TEAMS)
     ]
     keyboard.add(*buttons)
-
     bot.send_message(
         call.message.chat.id,
         "🏏 <b>Choose Your New Favourite Team:</b>",
@@ -599,12 +698,9 @@ def change_team(call):
 @bot.callback_query_handler(func=lambda c: c.data.startswith("newteam_"))
 def handle_new_team(call):
     bot.answer_callback_query(call.id)
-
     user_id = call.from_user.id
     selected_team = IPL_TEAMS[int(call.data.split("_")[1])]
-
     update_user_field(user_id, "favorite_team", selected_team)
-
     bot.send_message(
         call.message.chat.id,
         f"✅ Favourite team updated: <b>{selected_team}</b>",
@@ -616,20 +712,15 @@ def handle_new_team(call):
 @bot.callback_query_handler(func=lambda c: c.data == "change_pref")
 def change_pref(call):
     bot.answer_callback_query(call.id)
-
     keyboard = types.InlineKeyboardMarkup(row_width=1)
     keyboard.add(
         types.InlineKeyboardButton(
-            "🏏 Only My Team Matches", callback_data="newpref_0"
-        ),
+            "🏏 Only My Team Matches", callback_data="newpref_0"),
         types.InlineKeyboardButton(
-            "🌐 All IPL Matches", callback_data="newpref_1"
-        ),
+            "🌐 All IPL Matches", callback_data="newpref_1"),
         types.InlineKeyboardButton(
-            "🏆 Big Matches Only", callback_data="newpref_2"
-        )
+            "🏆 Big Matches Only", callback_data="newpref_2")
     )
-
     bot.send_message(
         call.message.chat.id,
         "🔔 <b>Choose Alert Preference:</b>",
@@ -641,12 +732,9 @@ def change_pref(call):
 @bot.callback_query_handler(func=lambda c: c.data.startswith("newpref_"))
 def handle_new_pref(call):
     bot.answer_callback_query(call.id)
-
     user_id = call.from_user.id
     selected_pref = ALERT_OPTIONS[int(call.data.split("_")[1])]
-
     update_user_field(user_id, "alert_preference", selected_pref)
-
     bot.send_message(
         call.message.chat.id,
         f"✅ Alert preference updated: <b>{selected_pref}</b>",
@@ -658,9 +746,7 @@ def handle_new_pref(call):
 @bot.callback_query_handler(func=lambda c: c.data == "stop_alerts")
 def handle_stop_alerts(call):
     bot.answer_callback_query(call.id)
-
     stop_notifications(call.from_user.id)
-
     bot.send_message(
         call.message.chat.id,
         "🔕 <b>Alerts Stopped</b>\n\n"
@@ -673,9 +759,7 @@ def handle_stop_alerts(call):
 @bot.callback_query_handler(func=lambda c: c.data == "resume_alerts")
 def handle_resume_alerts(call):
     bot.answer_callback_query(call.id)
-
     resume_notifications(call.from_user.id)
-
     bot.send_message(
         call.message.chat.id,
         "🔔 <b>Alerts Resumed!</b>\n\n"
@@ -684,7 +768,6 @@ def handle_resume_alerts(call):
         parse_mode="HTML"
     )
 
-
 # ─────────────────────────────────────────
 # SOS WATCHING
 # ─────────────────────────────────────────
@@ -692,12 +775,9 @@ def handle_resume_alerts(call):
 @bot.callback_query_handler(func=lambda c: c.data == "sos_watching")
 def handle_sos_watching(call):
     user_id = call.from_user.id
-
     if user_id in sos_state:
         sos_state[user_id]["active"] = False
-
     bot.answer_callback_query(call.id, "✅ Enjoy the match! 🏏")
-
     bot.send_message(
         user_id,
         "🏏 <b>Enjoy the match!</b>\n\n"
@@ -705,7 +785,6 @@ def handle_sos_watching(call):
         reply_markup=get_bottom_menu(),
         parse_mode="HTML"
     )
-
 
 # ─────────────────────────────────────────
 # SHARE BOT
@@ -716,9 +795,7 @@ def handle_share(message):
     keyboard = types.InlineKeyboardMarkup()
     keyboard.row(
         types.InlineKeyboardButton(
-            "📱 Join WhatsApp Channel",
-            url=WHATSAPP_LINK
-        )
+            "📱 Join WhatsApp Channel", url=WHATSAPP_LINK)
     )
     keyboard.row(
         types.InlineKeyboardButton(
@@ -726,7 +803,6 @@ def handle_share(message):
             url="https://t.me/share/url?url=https://t.me/Cricket_Thrill_Alert_Bot&text=Get%20live%20IPL%202026%20alerts!"
         )
     )
-
     bot.send_message(
         message.from_user.id,
         "📢 <b>Share Thrill Alert!</b>\n\n"
@@ -741,7 +817,6 @@ def handle_share(message):
         parse_mode="HTML"
     )
 
-
 # ─────────────────────────────────────────
 # HELP
 # ─────────────────────────────────────────
@@ -750,17 +825,20 @@ def handle_share(message):
 def handle_help(message):
     keyboard = types.InlineKeyboardMarkup()
     keyboard.row(
-        types.InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu"),
-        types.InlineKeyboardButton("⚙️ Settings", callback_data="settings")
+        types.InlineKeyboardButton(
+            "🏠 Main Menu", callback_data="main_menu"),
+        types.InlineKeyboardButton(
+            "⚙️ Settings", callback_data="settings")
     )
-
     bot.send_message(
         message.from_user.id,
         "❓ <b>How to Use Thrill Alert</b>\n\n"
         "• Tap <b>🏏 Live IPL Match</b> to check current game.\n"
         "• Tap <b>⚙️ Settings</b> to manage preferences.\n"
         "• Tap <b>📢 Share Bot</b> to invite friends.\n"
-        "• Tap <b>⭐ Give Feedback</b> to help us improve.\n\n"
+        "• Tap <b>⭐ Give Feedback</b> to help us improve.\n"
+        "• Tap <b>⚙️ Settings → 🎵 Set Thrill Alert Tone</b> "
+        "to set your custom alert sound.\n\n"
         "🔔 <b>Commands:</b>\n"
         "• /stop — Stop all alerts\n"
         "• /resume — Resume alerts\n\n"
@@ -769,7 +847,6 @@ def handle_help(message):
         parse_mode="HTML"
     )
 
-
 # ─────────────────────────────────────────
 # /STOP /RESUME
 # ─────────────────────────────────────────
@@ -777,7 +854,6 @@ def handle_help(message):
 @bot.message_handler(commands=["stop"])
 def handle_stop_command(message):
     stop_notifications(message.from_user.id)
-
     bot.send_message(
         message.from_user.id,
         "🔕 Alerts stopped. Send /resume to turn on again.",
@@ -788,13 +864,11 @@ def handle_stop_command(message):
 @bot.message_handler(commands=["resume"])
 def handle_resume_command(message):
     resume_notifications(message.from_user.id)
-
     bot.send_message(
         message.from_user.id,
-        "🔔 Alerts resumed! You will now get IPL 2026 alerts. 🏏",
+        "🔔 Alerts resumed! IPL 2026 alerts are active. 🏏",
         reply_markup=get_bottom_menu()
     )
-
 
 # ─────────────────────────────────────────
 # MATCH POLLING LOOP
@@ -833,10 +907,8 @@ def match_poll_loop():
 
             if innings_data:
                 alerts = detect_thrills(match_id, innings_data)
-
                 for alert in alerts:
                     print(f"Thrill: {alert['type']}")
-
                     if alert["is_mega"]:
                         start_sos_for_all(alert["message"])
                     else:
@@ -846,7 +918,6 @@ def match_poll_loop():
             print(f"Poll error: {e}")
 
         time.sleep(60)
-
 
 # ─────────────────────────────────────────
 # START
