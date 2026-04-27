@@ -33,7 +33,7 @@ class SimpleHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Cricket Thrill Alert Bot is running!")
 
     def log_message(self, format, *args):
-        pass  # Server logs band karo
+        pass
 
 def run_web_server():
     """Render ke liye simple web server"""
@@ -47,9 +47,15 @@ def run_web_server():
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
-    raise ValueError("❌ TELEGRAM_BOT_TOKEN environment variable nahi mili!")
+    raise ValueError("TELEGRAM_BOT_TOKEN environment variable nahi mili!")
 
 bot = telebot.TeleBot(TOKEN)
+
+# ─────────────────────────────────────────
+# WHATSAPP CHANNEL LINK
+# ─────────────────────────────────────────
+
+WHATSAPP_LINK = "https://whatsapp.com/channel/0029VbCxEWIKwqSaq8lHO517"
 
 # ─────────────────────────────────────────
 # IPL TEAMS
@@ -68,7 +74,6 @@ IPL_TEAMS = [
     "Lucknow Super Giants 🩵"
 ]
 
-# Alert preference options
 ALERT_OPTIONS = [
     "Only My Team Matches",
     "All IPL Matches",
@@ -79,10 +84,8 @@ ALERT_OPTIONS = [
 # STATE VARIABLES
 # ─────────────────────────────────────────
 
-# SOS state tracking
 sos_state = {}
 
-# Current match state
 current_match = {
     "match_id": None,
     "team1": None,
@@ -90,10 +93,7 @@ current_match = {
     "state": None
 }
 
-# User onboarding state tracking
 user_states = {}
-
-# Temporary feedback storage
 feedback_temp = {}
 
 # ─────────────────────────────────────────
@@ -115,11 +115,14 @@ def get_main_menu_inline():
     """Main menu ke liye inline buttons"""
     keyboard = types.InlineKeyboardMarkup()
     keyboard.row(
-        types.InlineKeyboardButton("⭐ Give Feedback", callback_data="feedback_start"),
-        types.InlineKeyboardButton("⚙️ Settings", callback_data="settings")
+        types.InlineKeyboardButton(
+            "⭐ Give Feedback", callback_data="feedback_start"),
+        types.InlineKeyboardButton(
+            "⚙️ Settings", callback_data="settings")
     )
     keyboard.row(
-        types.InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")
+        types.InlineKeyboardButton(
+            "🏠 Main Menu", callback_data="main_menu")
     )
     return keyboard
 
@@ -145,7 +148,7 @@ def broadcast_message(text, reply_markup=None):
             time.sleep(0.05)
         except Exception as e:
             failed += 1
-            print(f"❌ Broadcast failed for {user['user_id']}: {e}")
+            print(f"Broadcast failed for {user['user_id']}: {e}")
 
     return success, failed
 
@@ -162,7 +165,6 @@ def send_sos_alert(user_id, message_text):
             callback_data="sos_watching"
         )
     )
-
     try:
         bot.send_message(
             user_id,
@@ -171,7 +173,7 @@ def send_sos_alert(user_id, message_text):
             parse_mode="HTML"
         )
     except Exception as e:
-        print(f"❌ SOS send error for {user_id}: {e}")
+        print(f"SOS send error for {user_id}: {e}")
 
 def start_sos_for_all(alert_message):
     """Saare active users ke liye SOS mode start karo"""
@@ -195,7 +197,6 @@ def start_sos_for_all(alert_message):
                 if state and state["active"] and state["count"] < 5:
                     send_sos_alert(uid, state["message"])
                     sos_state[uid]["count"] += 1
-
                     if sos_state[uid]["count"] >= 5:
                         sos_state[uid]["active"] = False
 
@@ -212,8 +213,10 @@ def handle_start(message):
     user_id = message.from_user.id
     name = message.from_user.first_name or "Cricket Fan"
 
-    update_last_active(user_id)
-
+    # Agar user pehle se hai to last_active update karo
+    if user_exists(user_id):
+        update_last_active(user_id)
+    
     # Returning user
     if user_exists(user_id) and is_setup_complete(user_id):
         bot.send_message(
@@ -228,7 +231,6 @@ def handle_start(message):
 
     # New user
     create_user(user_id, name)
-    user_states[user_id] = "awaiting_notification_pref"
 
     keyboard = types.InlineKeyboardMarkup()
     keyboard.row(
@@ -327,22 +329,17 @@ def handle_alert_preference(call):
     update_user_field(user_id, "alert_preference", selected_pref)
     complete_setup(user_id)
 
+    user = get_user(user_id)
+    team = user.get("favorite_team", "your team")
+
+    # Setup complete message with WhatsApp link
     keyboard = types.InlineKeyboardMarkup()
     keyboard.row(
         types.InlineKeyboardButton(
             "📱 Join WhatsApp Channel",
-            url="https://whatsapp.com/channel/YOUR_CHANNEL_LINK"
+            url=WHATSAPP_LINK
         )
     )
-    keyboard.row(
-        types.InlineKeyboardButton(
-            "🏠 Go to Main Menu",
-            callback_data="main_menu"
-        )
-    )
-
-    user = get_user(user_id)
-    team = user.get("favorite_team", "your team")
 
     bot.edit_message_text(
         f"🎉 <b>Setup Complete!</b>\n\n"
@@ -356,29 +353,42 @@ def handle_alert_preference(call):
         parse_mode="HTML"
     )
 
+    # Bottom menu dikhao alag message mein
     bot.send_message(
         user_id,
-        "🏏 Use the menu below to get started!",
+        "🏏 You are all set! Use the menu below to explore:",
         reply_markup=get_bottom_menu()
     )
 
 # ─────────────────────────────────────────
-# MAIN MENU
+# MAIN MENU (FIXED)
 # ─────────────────────────────────────────
 
 @bot.callback_query_handler(func=lambda c: c.data == "main_menu")
 def handle_main_menu(call):
-    """Main menu dikhao"""
+    """Main menu dikhao - FIXED VERSION"""
     user_id = call.from_user.id
     name = call.from_user.first_name or "Cricket Fan"
 
-    # Callback answer karo pehle - loading indicator hatao
-    bot.answer_callback_query(call.id)
+    try:
+        bot.answer_callback_query(call.id)
+    except Exception:
+        pass
+
+    try:
+        bot.edit_message_reply_markup(
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=None
+        )
+    except Exception:
+        pass
 
     bot.send_message(
         user_id,
         f"🏠 <b>Main Menu</b>\n\n"
-        f"Hi <b>{name}</b>! What would you like to do?",
+        f"Hi <b>{name}</b>! What would you like to do?\n"
+        f"Use the buttons below 👇",
         reply_markup=get_bottom_menu(),
         parse_mode="HTML"
     )
@@ -449,11 +459,11 @@ def handle_live_match(message):
 @bot.callback_query_handler(func=lambda c: c.data.startswith("subscribe_"))
 def handle_subscribe_match(call):
     """Match alerts subscribe karo"""
-    bot.answer_callback_query(call.id, "✅ Alerts activated!", show_alert=False)
+    bot.answer_callback_query(
+        call.id, "✅ Alerts activated!", show_alert=False)
 
     user_id = call.from_user.id
     match_id = call.data.split("_")[1]
-
     update_user_field(user_id, "selected_match_id", match_id)
 
     bot.send_message(
@@ -536,7 +546,6 @@ def handle_feedback_text(message):
     feedback_text = message.text
 
     rating = feedback_temp.get(user_id, {}).get("rating", 5)
-
     saved = save_feedback(user_id, name, rating, feedback_text)
 
     user_states.pop(user_id, None)
@@ -598,7 +607,8 @@ def show_settings(user_id, chat_id):
         types.InlineKeyboardButton(notif_btn, callback_data=notif_cb)
     )
     keyboard.row(
-        types.InlineKeyboardButton("🏠 Main Menu", callback_data="main_menu")
+        types.InlineKeyboardButton(
+            "🏠 Main Menu", callback_data="main_menu")
     )
 
     bot.send_message(
@@ -727,7 +737,7 @@ def handle_share(message):
     keyboard.row(
         types.InlineKeyboardButton(
             "📱 Join WhatsApp Channel",
-            url="https://whatsapp.com/channel/YOUR_CHANNEL_LINK"
+            url=WHATSAPP_LINK
         )
     )
     keyboard.row(
@@ -744,7 +754,9 @@ def handle_share(message):
         "• ⚡ Momentum Shifts\n"
         "• 🔴 Thriller Finishes\n"
         "• 🔥 Super Over Alerts\n\n"
-        "👉 @Cricket_Thrill_Alert_Bot",
+        "👉 @Cricket_Thrill_Alert_Bot\n\n"
+        "📱 WhatsApp Channel:\n"
+        f"{WHATSAPP_LINK}",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
@@ -805,7 +817,7 @@ def handle_resume_command(message):
 
 def match_poll_loop():
     """Har 60 second mein IPL match check karo"""
-    print("🔄 Match polling loop started")
+    print("Match polling loop started")
 
     while True:
         try:
@@ -817,13 +829,12 @@ def match_poll_loop():
 
             match_id = match["match_id"]
 
-            # Naya match discovered?
             if current_match["match_id"] != match_id:
                 current_match["match_id"] = match_id
                 current_match["team1"] = match["team1"]
                 current_match["team2"] = match["team2"]
 
-                print(f"🏏 New match: {match['team1']} vs {match['team2']}")
+                print(f"New match: {match['team1']} vs {match['team2']}")
 
                 announcement = (
                     f"🏏 <b>Match Alert!</b>\n\n"
@@ -834,7 +845,6 @@ def match_poll_loop():
                 )
                 broadcast_message(announcement)
 
-            # Thrills detect karo
             scorecard = get_match_scorecard(match_id)
             innings_data = parse_current_innings(scorecard)
 
@@ -842,7 +852,7 @@ def match_poll_loop():
                 alerts = detect_thrills(match_id, innings_data)
 
                 for alert in alerts:
-                    print(f"⚡ Thrill detected: {alert['type']}")
+                    print(f"Thrill detected: {alert['type']}")
 
                     if alert["is_mega"]:
                         start_sos_for_all(alert["message"])
@@ -850,7 +860,7 @@ def match_poll_loop():
                         broadcast_message(alert["message"])
 
         except Exception as e:
-            print(f"❌ Poll loop error: {e}")
+            print(f"Poll loop error: {e}")
 
         time.sleep(60)
 
@@ -859,24 +869,24 @@ def match_poll_loop():
 # ─────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("🏏 Cricket Thrill Alert Bot starting...")
+    print("Cricket Thrill Alert Bot starting...")
 
-    # Web server thread (Render free tier ke liye)
+    # Web server (Render free tier)
     web_thread = threading.Thread(target=run_web_server, daemon=True)
     web_thread.start()
-    print("✅ Web server started")
+    print("Web server started")
 
-    # Database setup
+    # Database
     setup_database()
 
-    # Google Sheets headers
+    # Google Sheets
     setup_sheet_headers()
 
-    # Match polling thread
+    # Match polling
     poll_thread = threading.Thread(target=match_poll_loop, daemon=True)
     poll_thread.start()
 
-    print("✅ Bot is running!")
+    print("Bot is running!")
 
     # Bot polling forever
     bot.infinity_polling(timeout=60, long_polling_timeout=60)
