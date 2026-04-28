@@ -31,7 +31,7 @@ def get_live_ipl_match():
                         info = match.get("matchInfo", {})
                         state = info.get("state", "").lower()
 
-                        if state in ["live", "in progress", "innings break"]:
+                        if state in ["live", "in progress", "innings break", "complete"]:
                             return {
                                 "match_id": str(info.get("matchId", "")),
                                 "team1": info.get("team1", {}).get("teamName", "Team A"),
