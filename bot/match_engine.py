@@ -17,7 +17,7 @@ def get_live_ipl_match():
     """
     try:
         # Step 1: Recent matches se pehla match uthao jo IPL series ka ho
-        url = f"https://{RAPIDAPI_HOST}/matches/v1/recent"
+        url = f"https://{RAPIDAPI_HOST}/matches/recent"
         response = requests.get(url, headers=get_headers(), timeout=10)
         
         if response.status_code != 200: return None
