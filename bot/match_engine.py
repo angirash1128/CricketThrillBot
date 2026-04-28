@@ -46,7 +46,7 @@ def get_live_ipl_match():
                 series_name = series_wrapper.get("seriesName", "")
                 
                 # Sirf IPL 2026 matches
-                if "Indian Premier League 2026" not in series_name:
+                # Flexible IPL detection if "IPL" not in series_name.upper():     continue
                     continue
                 
                 matches = series_wrapper.get("matches", [])
