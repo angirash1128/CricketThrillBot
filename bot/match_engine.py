@@ -14,35 +14,58 @@ def get_live_ipl_match():
     try:
         url = f"https://{RAPIDAPI_HOST}/matches/recent"
         response = requests.get(url, headers=get_headers(), timeout=15)
-
-        if response.status_code != 200:
-            return None
-
+        if response.status_code != 200: return None
         data = response.json()
 
-        for t in data.get("typeMatches", []):
-            for s in t.get("seriesMatches", []):
-                w = s.get("seriesAdWrapper")
-                if not w: continue
+        # DEEP SCAN: JSON ke har hisse mein IPL match dhoondo
+        for type_match in data.get("typeMatches", []):
+            for series_match in type_match.get("seriesMatches", []):
+                wrapper = series_match.get("seriesAdWrapper")
+                if not wrapper: continue
                 
-                name = w.get("seriesName", "").upper()
-                # Agar series IPL hai, toh match uthao
-                if "IPL" in name or "INDIAN PREMIER" in name:
-                    for m in w.get("matches", []):
-                        info = m.get("matchInfo", {})
-                        state = info.get("state", "").lower()
+                # Check Series Name
+                s_name = wrapper.get("seriesName", "").upper()
+                if "IPL" in s_name or "INDIAN PREMIER" in s_name:
+                    matches = wrapper.get("matches", [])
+                    # Sabse pehla match uthao jo complete na ho, ya last match uthao
+                    for m in matches:
+                        m_info = m.get("matchInfo", {})
+                        state = m_info.get("state", "").lower()
                         
-                        # Sirf 'complete' ko chhod kar baaki sab dikhao (Live, Toss, Preview, In Progress)
+                        # Agar match complete nahi hai, toh ye hi live hai!
                         if state != "complete":
-                            print(f"✅ Match detected: {info.get('matchId')}")
                             return {
-                                "match_id": str(info.get("matchId", "")),
-                                "team1": info.get("team1", {}).get("teamName", "Team A"),
-                                "team2": info.get("team2", {}).get("teamName", "Team B"),
-                                "status": info.get("status", "Match is starting...")
+                                "match_id": str(m_info.get("matchId")),
+                                "team1": m_info.get("team1", {}).get("teamName", "Team 1"),
+                                "team2": m_info.get("team2", {}).get("teamName", "Team 2"),
+                                "status": m_info.get("status", "Match Live")
                             }
         return None
-    except Exception:
-        return None
+    except Exception: return None
 
-# Baki scorecard functions as it is rahenge (Niche paste mat karna agar pehle se hain)
+def get_match_scorecard(match_id):
+    try:
+        url = f"https://{RAPIDAPI_HOST}/mcenter/v1/{match_id}/scard"
+        r = requests.get(url, headers=get_headers(), timeout=10)
+        return r.json() if r.status_code == 200 else None
+    except Exception: return None
+
+def parse_current_innings(data):
+    try:
+        if not data: return None
+        sc = data.get("scoreCard", [])
+        if not sc: return None
+        curr = sc[-1]
+        bat = curr.get("batTeamDetails", {}).get("batTeamScoreDetails", {})
+        return {
+            "innings_id": curr.get("inningsId", 1),
+            "runs": bat.get("runs", 0),
+            "wickets": bat.get("wickets", 0),
+            "overs": float(bat.get("overs", 0.0)),
+            "target": data.get("matchHeader", {}).get("target", None)
+        }
+    except Exception: return None
+
+def detect_thrills(match_id, innings_data):
+    # alerts logic...
+    return []
