@@ -12,62 +12,56 @@ def get_headers():
 
 def get_live_ipl_match():
     try:
-        # Step 1: Recent matches fetch karo
         url = f"https://{RAPIDAPI_HOST}/matches/recent"
         response = requests.get(url, headers=get_headers(), timeout=15)
-        
+
         if response.status_code != 200:
             print(f"API Error: {response.status_code}")
             return None
-        
+
         data = response.json()
-        
-        # Step 2: Poore JSON data mein IPL match dhoondo (Hard Scan)
-        type_matches = data.get("typeMatches", [])
-        
-        for t_match in type_matches:
-            series_matches = t_match.get("seriesMatches", [])
-            for s_match in series_matches:
-                # seriesAdWrapper ke andar dhoondo
-                wrapper = s_match.get("seriesAdWrapper")
-                if not wrapper: continue
-                
-                s_name = wrapper.get("seriesName", "").upper()
-                
-                # Agar series IPL hai
-                if "IPL" in s_name or "INDIAN PREMIER" in s_name:
-                    matches = wrapper.get("matches", [])
-                    for m in matches:
-                        m_info = m.get("matchInfo", {})
-                        state = m_info.get("state", "").lower()
-                        
-                        # ABHI TEST KE LIYE: Hum 'complete' ko bhi 'live' ki tarah dikhayenge
-                        # Kal jab match live hoga, ye tab bhi kaam karega
-                        if state in ["live", "in progress", "innings break", "complete"]:
-                            print(f"✅ Found IPL Match: {m_info.get('matchId')}")
+
+        for t in data.get("typeMatches", []):
+            for s in t.get("seriesMatches", []):
+                w = s.get("seriesAdWrapper")
+                if not w:
+                    continue
+                name = w.get("seriesName", "").upper()
+                if "IPL" in name or "INDIAN PREMIER" in name:
+                    for m in w.get("matches", []):
+                        info = m.get("matchInfo", {})
+                        state = info.get("state", "").lower()
+                        if state in ["live", "in progress",
+                                     "innings break", "complete"]:
+                            print(f"Match found: {info.get('matchId')}")
                             return {
-                                "match_id": str(m_info.get("matchId", "")),
-                                "team1": m_info.get("team1", {}).get("teamName", "Team A"),
-                                "team2": m_info.get("team2", {}).get("teamName", "Team B"),
-                                "status": m_info.get("status", "Match Finished")
+                                "match_id": str(info.get("matchId", "")),
+                                "team1": info.get("team1", {}).get("teamName", "Team A"),
+                                "team2": info.get("team2", {}).get("teamName", "Team B"),
+                                "status": info.get("status", "")
                             }
+        print("No IPL match in API response")
         return None
+
     except Exception as e:
-        print(f"Fetch Error: {e}")
+        print(f"Match error: {e}")
         return None
 
 def get_match_scorecard(match_id):
     try:
         url = f"https://{RAPIDAPI_HOST}/mcenter/v1/{match_id}/scard"
-        response = requests.get(url, headers=get_headers(), timeout=10)
-        return response.json() if response.status_code == 200 else None
-    except Exception: return None
+        r = requests.get(url, headers=get_headers(), timeout=10)
+        return r.json() if r.status_code == 200 else None
+    except Exception:
+        return None
 
-def parse_current_innings(scorecard_data):
+def parse_current_innings(data):
     try:
-        if not scorecard_data: return None
-        sc = scorecard_data.get("scoreCard", [])
-        if not sc: return None
+        if not data:
+            return None
+        sc = data.get("scoreCard", [])
+        if not sc:
+            return None
         curr = sc[-1]
         bat = curr.get("batTeamDetails", {}).get("batTeamScoreDetails", {})
         return {
@@ -75,12 +69,44 @@ def parse_current_innings(scorecard_data):
             "runs": bat.get("runs", 0),
             "wickets": bat.get("wickets", 0),
             "overs": float(bat.get("overs", 0.0)),
-            "target": scorecard_data.get("matchHeader", {}).get("target", None)
+            "target": data.get("matchHeader", {}).get("target", None)
         }
-    except Exception: return None
+    except Exception:
+        return None
 
 match_trackers = {}
 
 def detect_thrills(match_id, innings_data):
-    # Dummy function to keep main.py happy
-    return []
+    alerts = []
+    if not innings_data:
+        return alerts
+    if match_id not in match_trackers:
+        match_trackers[match_id] = {
+            "innings_id": innings_data["innings_id"],
+            "wicket_count": innings_data["wickets"],
+            "momentum_baseline": innings_data["runs"]
+        }
+        return alerts
+    tr = match_trackers[match_id]
+    if tr["innings_id"] != innings_data["innings_id"]:
+        match_trackers[match_id] = {
+            "innings_id": innings_data["innings_id"],
+            "wicket_count": innings_data["wickets"],
+            "momentum_baseline": innings_data["runs"]
+        }
+        return alerts
+    if innings_data["wickets"] > tr["wicket_count"]:
+        alerts.append({
+            "type": "wicket",
+            "is_mega": False,
+            "message": f"🚨 WICKET!\nScore: {innings_data['runs']}/{innings_data['wickets']}"
+        })
+        tr["wicket_count"] = innings_data["wickets"]
+    if (innings_data["runs"] - tr["momentum_baseline"]) >= 12:
+        alerts.append({
+            "type": "momentum",
+            "is_mega": False,
+            "message": f"⚡ MOMENTUM SHIFT!\nScore: {innings_data['runs']}/{innings_data['wickets']}"
+        })
+        tr["momentum_baseline"] = innings_data["runs"]
+    return alerts
