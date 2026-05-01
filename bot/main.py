@@ -1,113 +1,53 @@
 import os
 import time
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from datetime import datetime
 from telebot import TeleBot, types
-from match_engine import get_live_ipl_match
+from match_engine import get_live_ipl_match, get_match_scorecard, parse_current_innings
 
-# Bot setup
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-if not TOKEN:
-    raise ValueError("TELEGRAM_BOT_TOKEN missing!")
-
 bot = TeleBot(TOKEN)
 
-# ─────────────────────────────────────────
-# WEB SERVER
-# ─────────────────────────────────────────
+def match_poll_loop():
+    print("🚀 Thrill Hunter Engine Started")
+    current_mid = None
+    
+    while True:
+        try:
+            now = datetime.now()
+            # 1. API Safety: Raat 12 se Sham 7 tak API ko hath bhi nahi lagana
+            if now.hour < 19:
+                time.sleep(3600) # Check every hour (0 API calls)
+                continue
 
-class SimpleHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Thrill Alert Running")
+            # 2. Get Match
+            match = get_live_ipl_match()
+            if not match:
+                time.sleep(1800) # Match nahi hai toh 30 min wait
+                continue
 
-    def do_HEAD(self):
-        self.send_response(200)
-        self.end_headers()
+            mid = match["match_id"]
+            scard = get_match_scorecard(mid)
+            data = parse_current_innings(scard)
 
-    def log_message(self, format, *args):
-        pass
+            if data:
+                # 3. Smart Polling Logic
+                # Agar match climax par hai (16th over ke baad), toh poll faster
+                if data["overs"] > 16.0 or (data["innings_id"] == 2 and data["overs"] > 12.0):
+                    wait_time = 300 # Har 5 minute
+                else:
+                    wait_time = 900 # Normal time mein har 15 minute
 
-def run_server():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
-    server.serve_forever()
+                # 4. Thrill Alert! (Example: Collapse or High Run Rate)
+                if data["wickets"] >= 8:
+                    bot.send_message(YOUR_ADMIN_ID_OR_CHANNEL, "🚨 THRILL ALERT: Batting Collapse! Check Match! 🏏")
 
-# ─────────────────────────────────────────
-# MENU
-# ─────────────────────────────────────────
+                print(f"Match: {match['team1']} - Polling in {wait_time/60} mins")
+                time.sleep(wait_time)
 
-def main_menu():
-    kb = types.ReplyKeyboardMarkup(
-        resize_keyboard=True,
-        is_persistent=True
-    )
-    kb.row("🏏 Live IPL Match")
-    kb.row("⚙️ Settings", "⭐ Give Feedback")
-    return kb
-
-# ─────────────────────────────────────────
-# HANDLERS
-# ─────────────────────────────────────────
-
-@bot.message_handler(commands=["start"])
-def start_cmd(message):
-    print(f"User {message.from_user.id} sent /start")
-    bot.send_message(
-        message.chat.id,
-        f"🏏 Welcome to Thrill Alert!\n\n"
-        f"Hi {message.from_user.first_name}! 👋\n\n"
-        f"Tap below to check today's IPL match.",
-        reply_markup=main_menu()
-    )
-
-@bot.message_handler(func=lambda m: m.text == "🏏 Live IPL Match")
-def live_match(message):
-    print(f"User {message.from_user.id} tapped Live Match")
-    match = get_live_ipl_match()
-
-    if not match:
-        bot.send_message(
-            message.chat.id,
-            "❌ No live IPL match right now.\n\n"
-            "I will alert you when match starts! 🔔"
-        )
-        return
-
-    bot.send_message(
-        message.chat.id,
-        f"🏏 <b>{match['team1']}</b> vs <b>{match['team2']}</b>\n\n"
-        f"📊 Status: {match['status']}",
-        parse_mode="HTML"
-    )
-
-@bot.message_handler(func=lambda m: True)
-def catch_all(message):
-    print(f"Message from {message.from_user.id}: {message.text}")
-    bot.send_message(
-        message.chat.id,
-        "Tap the button below 👇",
-        reply_markup=main_menu()
-    )
-
-# ─────────────────────────────────────────
-# START
-# ─────────────────────────────────────────
+        except Exception as e:
+            time.sleep(600)
 
 if __name__ == "__main__":
-    print("Starting Thrill Alert Bot...")
-
-    # Web server
-    threading.Thread(target=run_server, daemon=True).start()
-    print("Web server started")
-
-    # Clear old connections
-    try:
-        bot.delete_webhook(drop_pending_updates=True)
-        print("Webhook cleared")
-    except Exception as e:
-        print(f"Webhook clear: {e}")
-
-    print("Bot polling started...")
-    bot.polling(none_stop=True, timeout=30)
+    threading.Thread(target=match_poll_loop, daemon=True).start()
+    bot.infinity_polling()
