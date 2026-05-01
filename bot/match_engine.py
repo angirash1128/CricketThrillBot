@@ -1,40 +1,41 @@
 import os
 import requests
+from datetime import datetime
 
-# Render se key lega
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 RAPIDAPI_HOST = "cricbuzz-cricket.p.rapidapi.com"
 
 def get_headers():
-    return {
-        "x-rapidapi-key": RAPIDAPI_KEY,
-        "x-rapidapi-host": RAPIDAPI_HOST
-    }
+    return {"x-rapidapi-key": RAPIDAPI_KEY, "x-rapidapi-host": RAPIDAPI_HOST}
 
 def get_live_ipl_match():
-    """
-    Direct Match ID (151976) se data fetch karega. 
-    Koi search filter nahi!
-    """
-    match_id = "151976" # RR vs DC
-    try:
-        # Seedha scorecard endpoint check karo
-        url = f"https://{RAPIDAPI_HOST}/mcenter/v1/{match_id}/scard"
-        response = requests.get(url, headers=get_headers(), timeout=15)
-        
-        if response.status_code == 200:
-            return {
-                "match_id": match_id,
-                "team1": "Rajasthan Royals",
-                "team2": "Delhi Capitals",
-                "status": "Match is LIVE 🏏"
-            }
-        else:
-            print(f"API Error: {response.status_code}")
-            return None
-    except Exception as e:
-        print(f"Error: {e}")
+    # 200 limit hai, isliye hum sirf sham ko check karenge
+    now = datetime.now()
+    if now.hour < 19: # Sham 7 baje se pehle kuch nahi dhoondna
         return None
+
+    try:
+        url = f"https://{RAPIDAPI_HOST}/matches/recent"
+        response = requests.get(url, headers=get_headers(), timeout=15)
+        if response.status_code != 200: return None
+        
+        data = response.json()
+        for t in data.get("typeMatches", []):
+            for s in t.get("seriesMatches", []):
+                wrapper = s.get("seriesAdWrapper")
+                if not wrapper: continue
+                if "IPL" in wrapper.get("seriesName", "").upper():
+                    for m in wrapper.get("matches", []):
+                        info = m.get("matchInfo", {})
+                        if info.get("state", "").lower() != "complete":
+                            return {
+                                "match_id": str(info.get("matchId")),
+                                "team1": info.get("team1", {}).get("teamName"),
+                                "team2": info.get("team2", {}).get("teamName"),
+                                "status": info.get("status")
+                            }
+        return None
+    except Exception: return None
 
 def get_match_scorecard(match_id):
     try:
@@ -58,6 +59,3 @@ def parse_current_innings(data):
             "target": data.get("matchHeader", {}).get("target", None)
         }
     except Exception: return None
-
-def detect_thrills(match_id, innings_data):
-    return [] # dummy for now
