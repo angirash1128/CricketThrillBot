@@ -1,6 +1,7 @@
 import os
 import requests
 
+# Render se key lega
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 RAPIDAPI_HOST = "cricbuzz-cricket.p.rapidapi.com"
 
@@ -11,37 +12,29 @@ def get_headers():
     }
 
 def get_live_ipl_match():
+    """
+    Direct Match ID (151976) se data fetch karega. 
+    Koi search filter nahi!
+    """
+    match_id = "151976" # RR vs DC
     try:
-        url = f"https://{RAPIDAPI_HOST}/matches/recent"
+        # Seedha scorecard endpoint check karo
+        url = f"https://{RAPIDAPI_HOST}/mcenter/v1/{match_id}/scard"
         response = requests.get(url, headers=get_headers(), timeout=15)
-        if response.status_code != 200: return None
-        data = response.json()
-
-        # DEEP SCAN: JSON ke har hisse mein IPL match dhoondo
-        for type_match in data.get("typeMatches", []):
-            for series_match in type_match.get("seriesMatches", []):
-                wrapper = series_match.get("seriesAdWrapper")
-                if not wrapper: continue
-                
-                # Check Series Name
-                s_name = wrapper.get("seriesName", "").upper()
-                if "IPL" in s_name or "INDIAN PREMIER" in s_name:
-                    matches = wrapper.get("matches", [])
-                    # Sabse pehla match uthao jo complete na ho, ya last match uthao
-                    for m in matches:
-                        m_info = m.get("matchInfo", {})
-                        state = m_info.get("state", "").lower()
-                        
-                        # Agar match complete nahi hai, toh ye hi live hai!
-                        if state != "complete":
-                            return {
-                                "match_id": str(m_info.get("matchId")),
-                                "team1": m_info.get("team1", {}).get("teamName", "Team 1"),
-                                "team2": m_info.get("team2", {}).get("teamName", "Team 2"),
-                                "status": m_info.get("status", "Match Live")
-                            }
+        
+        if response.status_code == 200:
+            return {
+                "match_id": match_id,
+                "team1": "Rajasthan Royals",
+                "team2": "Delhi Capitals",
+                "status": "Match is LIVE 🏏"
+            }
+        else:
+            print(f"API Error: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"Error: {e}")
         return None
-    except Exception: return None
 
 def get_match_scorecard(match_id):
     try:
@@ -67,5 +60,4 @@ def parse_current_innings(data):
     except Exception: return None
 
 def detect_thrills(match_id, innings_data):
-    # alerts logic...
-    return []
+    return [] # dummy for now
