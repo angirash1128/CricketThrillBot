@@ -12,12 +12,19 @@ def get_headers():
     }
 
 
-def extract_ipl_match(data, allow_complete=False):
-    """
-    API response me IPL match dhundo.
-    allow_complete=False means sirf live/upcoming type match return karo.
-    """
+def get_live_ipl_match():
     try:
+        # SIRF /matches/live use karo
+        url = f"https://{RAPIDAPI_HOST}/matches/live"
+        response = requests.get(
+            url, headers=get_headers(), timeout=15)
+
+        if response.status_code != 200:
+            print(f"API Error: {response.status_code}")
+            return None
+
+        data = response.json()
+
         for match_type in data.get("typeMatches", []):
             for series in match_type.get("seriesMatches", []):
                 wrapper = series.get("seriesAdWrapper")
@@ -27,129 +34,61 @@ def extract_ipl_match(data, allow_complete=False):
                 series_name = wrapper.get("seriesName", "").upper()
 
                 if "IPL" in series_name or "INDIAN PREMIER" in series_name:
-                    matches = wrapper.get("matches", [])
-
-                    for match in matches:
+                    for match in wrapper.get("matches", []):
                         info = match.get("matchInfo", {})
                         state = info.get("state", "").lower()
-                        status = info.get("status", "")
 
-                        if allow_complete:
-                            return {
-                                "match_id": str(info.get("matchId", "")),
-                                "team1": info.get("team1", {}).get("teamName", "Team A"),
-                                "team2": info.get("team2", {}).get("teamName", "Team B"),
-                                "status": status,
-                                "state": state
-                            }
-
-                        # Live / toss / preview / innings break / in progress
+                        # Complete ko chhod kar sab accept karo
                         if state != "complete":
+                            t1 = info.get("team1", {}).get(
+                                "teamName", "Team A")
+                            t2 = info.get("team2", {}).get(
+                                "teamName", "Team B")
+                            print(f"✅ IPL Match: {t1} vs {t2} | {state}")
                             return {
                                 "match_id": str(info.get("matchId", "")),
-                                "team1": info.get("team1", {}).get("teamName", "Team A"),
-                                "team2": info.get("team2", {}).get("teamName", "Team B"),
-                                "status": status,
+                                "team1": t1,
+                                "team2": t2,
+                                "status": info.get("status", "Live"),
                                 "state": state
                             }
 
+        print("No IPL match in live endpoint")
         return None
+
     except Exception as e:
-        print(f"extract_ipl_match error: {e}")
+        print(f"Error: {e}")
         return None
-
-
-def fetch_endpoint(endpoint):
-    try:
-        url = f"https://{RAPIDAPI_HOST}{endpoint}"
-        response = requests.get(url, headers=get_headers(), timeout=15)
-
-        if response.status_code != 200:
-            print(f"{endpoint} failed: {response.status_code}")
-            return None
-
-        return response.json()
-    except Exception as e:
-        print(f"{endpoint} error: {e}")
-        return None
-
-
-def get_live_ipl_match():
-    """
-    Priority:
-    1. /matches/live
-    2. /matches/upcoming
-    3. None
-    """
-    # 1. Live endpoint
-    live_data = fetch_endpoint("/matches/live")
-    if live_data:
-        live_match = extract_ipl_match(live_data, allow_complete=False)
-        if live_match:
-            print(f"✅ LIVE IPL found: {live_match['team1']} vs {live_match['team2']}")
-            return live_match
-
-    # 2. Upcoming endpoint
-    upcoming_data = fetch_endpoint("/matches/upcoming")
-    if upcoming_data:
-        upcoming_match = extract_ipl_match(upcoming_data, allow_complete=False)
-        if upcoming_match:
-            print(f"✅ UPCOMING IPL found: {upcoming_match['team1']} vs {upcoming_match['team2']}")
-            return upcoming_match
-
-    print("No live/upcoming IPL match found")
-    return None
 
 
 def get_match_scorecard(match_id):
     try:
         url = f"https://{RAPIDAPI_HOST}/mcenter/v1/{match_id}/scard"
-        response = requests.get(url, headers=get_headers(), timeout=15)
-
-        if response.status_code != 200:
-            print(f"scorecard failed: {response.status_code}")
-            return None
-
-        return response.json()
-    except Exception as e:
-        print(f"scorecard error: {e}")
+        r = requests.get(url, headers=get_headers(), timeout=15)
+        return r.json() if r.status_code == 200 else None
+    except Exception:
         return None
 
 
-def parse_current_innings(scorecard_data):
+def parse_current_innings(data):
     try:
-        if not scorecard_data:
+        if not data:
             return None
-
-        score_card = scorecard_data.get("scoreCard", [])
-        if not score_card:
+        sc = data.get("scoreCard", [])
+        if not sc:
             return None
-
-        current = score_card[-1]
-        innings_id = current.get("inningsId", 1)
-
-        bat_team_details = current.get("batTeamDetails", {})
-        bat_score = bat_team_details.get("batTeamScoreDetails", {})
-
-        runs = bat_score.get("runs", 0)
-        wickets = bat_score.get("wickets", 0)
-        overs = bat_score.get("overs", 0.0)
-
-        target = None
-        if innings_id == 2:
-            match_header = scorecard_data.get("matchHeader", {})
-            target = match_header.get("target", None)
-
+        curr = sc[-1]
+        bat = curr.get(
+            "batTeamDetails", {}).get("batTeamScoreDetails", {})
         return {
-            "innings_id": innings_id,
-            "runs": runs,
-            "wickets": wickets,
-            "overs": float(overs),
-            "target": target
+            "innings_id": curr.get("inningsId", 1),
+            "runs": bat.get("runs", 0),
+            "wickets": bat.get("wickets", 0),
+            "overs": float(bat.get("overs", 0.0)),
+            "target": data.get(
+                "matchHeader", {}).get("target", None)
         }
-
-    except Exception as e:
-        print(f"parse_current_innings error: {e}")
+    except Exception:
         return None
 
 
@@ -158,7 +97,6 @@ match_trackers = {}
 
 def detect_thrills(match_id, innings_data):
     alerts = []
-
     if not innings_data:
         return alerts
 
@@ -171,10 +109,9 @@ def detect_thrills(match_id, innings_data):
         }
         return alerts
 
-    tracker = match_trackers[match_id]
+    tr = match_trackers[match_id]
 
-    # innings change reset
-    if tracker["innings_id"] != innings_data["innings_id"]:
+    if tr["innings_id"] != innings_data["innings_id"]:
         match_trackers[match_id] = {
             "innings_id": innings_data["innings_id"],
             "wicket_count": innings_data["wickets"],
@@ -188,8 +125,8 @@ def detect_thrills(match_id, innings_data):
     overs = innings_data["overs"]
     target = innings_data["target"]
 
-    # wicket alert
-    if wickets > tracker["wicket_count"]:
+    # Wicket alert
+    if wickets > tr["wicket_count"]:
         alerts.append({
             "type": "wicket",
             "is_mega": False,
@@ -199,10 +136,10 @@ def detect_thrills(match_id, innings_data):
                 f"Overs: {overs}"
             )
         })
-        tracker["wicket_count"] = wickets
+        tr["wicket_count"] = wickets
 
-    # momentum shift
-    if (runs - tracker["momentum_baseline"]) >= 12:
+    # Momentum shift
+    if (runs - tr["momentum_baseline"]) >= 12:
         alerts.append({
             "type": "momentum",
             "is_mega": False,
@@ -212,18 +149,17 @@ def detect_thrills(match_id, innings_data):
                 f"Overs: {overs}"
             )
         })
-        tracker["momentum_baseline"] = runs
+        tr["momentum_baseline"] = runs
 
-    # thriller finish
+    # Thriller finish
     if (
         target
         and innings_data["innings_id"] == 2
         and overs >= 16.0
-        and not tracker["thriller_alerted"]
+        and not tr["thriller_alerted"]
     ):
         runs_needed = target - runs
         balls_left = max(1, int((20 - overs) * 6))
-
         if 0 < runs_needed <= 30:
             alerts.append({
                 "type": "thriller",
@@ -234,6 +170,6 @@ def detect_thrills(match_id, innings_data):
                     f"Score: {runs}/{wickets}"
                 )
             })
-            tracker["thriller_alerted"] = True
+            tr["thriller_alerted"] = True
 
     return alerts
