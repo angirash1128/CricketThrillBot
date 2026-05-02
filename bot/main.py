@@ -1,13 +1,14 @@
 import os
 import time
 import threading
+import requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from telebot import TeleBot, types
-from match_engine import get_live_ipl_match
+from match_engine import get_live_ipl_match, debug_ipl_status
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
-    raise ValueError("TOKEN missing!")
+    raise ValueError("TELEGRAM_BOT_TOKEN missing!")
 
 bot = TeleBot(TOKEN)
 
@@ -31,6 +32,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):
         pass
+
 
 def run_server():
     port = int(os.environ.get("PORT", 10000))
@@ -57,33 +59,57 @@ def get_menu():
 @bot.message_handler(commands=["start"])
 def start_cmd(message):
     name = message.from_user.first_name or "Cricket Fan"
+    print(f"/start from {message.from_user.id}")
+
     bot.send_message(
         message.chat.id,
         f"🏏 Welcome <b>{name}</b>!\n\n"
-        f"Tap below to check IPL match.",
+        f"Tap below to check IPL match.\n\n"
+        f"Debug command: /debuglive",
         reply_markup=get_menu(),
         parse_mode="HTML"
     )
 
+
+@bot.message_handler(commands=["debuglive"])
+def debug_live_cmd(message):
+    print(f"/debuglive from {message.from_user.id}")
+    report = debug_ipl_status()
+
+    bot.send_message(
+        message.chat.id,
+        f"🔍 <b>IPL Debug Report</b>\n\n<code>{report}</code>",
+        parse_mode="HTML"
+    )
+
+
 @bot.message_handler(func=lambda m: m.text == "🏏 Live IPL Match")
-def live_match(message):
+def live_match_handler(message):
+    print(f"Live IPL Match button from {message.from_user.id}")
     match = get_live_ipl_match()
+
     if not match:
         bot.send_message(
             message.chat.id,
             "❌ No live IPL match right now.\n"
-            "I will alert you when match starts! 🔔"
+            "I will alert you when match starts! 🔔\n\n"
+            "Send /debuglive to inspect API."
         )
         return
+
     bot.send_message(
         message.chat.id,
         f"🏏 <b>{match['team1']}</b> vs <b>{match['team2']}</b>\n\n"
-        f"Status: {match['status']}",
+        f"📊 Status: {match['status']}\n"
+        f"🧭 State: {match['state']}\n"
+        f"🏆 Series: {match['series_name']}",
         parse_mode="HTML"
     )
 
+
 @bot.message_handler(func=lambda m: True)
 def catch_all(message):
+    print(f"Catch all: {message.text}")
     bot.send_message(
         message.chat.id,
         "Tap the button below 👇",
@@ -97,20 +123,18 @@ def catch_all(message):
 if __name__ == "__main__":
     print("Starting Thrill Alert Bot...")
 
-    # Web server start karo
+    # Web server
     threading.Thread(target=run_server, daemon=True).start()
 
-    # Webhook clear karo
+    # Webhook force clear
     try:
-        import requests as req
-        req.get(
-            f"https://api.telegram.org/bot{TOKEN}"
-            f"/deleteWebhook?drop_pending_updates=true",
+        requests.get(
+            f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true",
             timeout=10
         )
         print("Webhook cleared")
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Webhook clear error: {e}")
 
     time.sleep(2)
 
