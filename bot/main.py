@@ -2,6 +2,7 @@ import os
 import time
 import threading
 import requests as req
+from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from telebot import TeleBot, types
 from match_engine import (
@@ -11,6 +12,7 @@ from match_engine import (
     parse_current_innings,
     detect_thrills
 )
+from ipl_schedule import is_match_time_now, get_todays_matches
 
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
@@ -18,7 +20,6 @@ if not TOKEN:
 
 bot = TeleBot(TOKEN)
 
-# Subscribed users
 alert_users = set()
 current_match = {"match_id": None}
 
@@ -59,6 +60,7 @@ def get_menu():
         is_persistent=True
     )
     kb.row("🏏 Live IPL Match")
+    kb.row("📅 Today's Schedule")
     return kb
 
 # ─────────────────────────────────────────
@@ -82,16 +84,48 @@ def start_cmd(message):
     uid = message.from_user.id
     name = message.from_user.first_name or "Fan"
     alert_users.add(uid)
-    print(f"/start from {uid}")
+
+    today = get_todays_matches()
+    if today:
+        schedule_text = "\n".join(
+            [f"• {m['team1']} vs {m['team2']} at {m['hour']}:{m['minute']:02d}"
+             for m in today]
+        )
+    else:
+        schedule_text = "No IPL match today"
+
     bot.send_message(
         message.chat.id,
-        f"🏏 Welcome <b>{name}</b>!\n\n"
-        f"✅ You will get automatic THRILL alerts!\n\n"
-        f"Tap below to check match.\n"
+        f"🏏 <b>Welcome to Thrill Alert!</b>\n\n"
+        f"Hi <b>{name}</b>! 👋\n\n"
+        f"📅 <b>Today's IPL:</b>\n{schedule_text}\n\n"
+        f"✅ You will get automatic THRILL alerts!\n"
+        f"I only buzz when something EXCITING happens!\n\n"
         f"Debug: /debuglive",
         reply_markup=get_menu(),
         parse_mode="HTML"
     )
+
+
+@bot.message_handler(func=lambda m: m.text == "📅 Today's Schedule")
+def schedule_handler(message):
+    alert_users.add(message.from_user.id)
+
+    today = get_todays_matches()
+    if today:
+        text = "\n".join(
+            [f"• <b>{m['team1']}</b> vs <b>{m['team2']}</b> at {m['hour']}:{m['minute']:02d}"
+             for m in today]
+        )
+    else:
+        text = "No IPL match scheduled today"
+
+    bot.send_message(
+        message.chat.id,
+        f"📅 <b>Today's IPL Schedule</b>\n\n{text}",
+        parse_mode="HTML"
+    )
+
 
 @bot.message_handler(commands=["debuglive"])
 def debug_cmd(message):
@@ -99,34 +133,32 @@ def debug_cmd(message):
     report = debug_ipl_status()
     bot.send_message(
         message.chat.id,
-        f"🔍 <b>Debug Report</b>\n\n<code>{report}</code>",
+        f"🔍 <b>Debug</b>\n\n<code>{report}</code>",
         parse_mode="HTML"
     )
 
+
 @bot.message_handler(func=lambda m: m.text == "🏏 Live IPL Match")
 def live_match_handler(message):
-    uid = message.from_user.id
-    alert_users.add(uid)
-    print(f"Live button from {uid}")
+    alert_users.add(message.from_user.id)
 
     match = get_live_ipl_match()
-
     if not match:
         bot.send_message(
             message.chat.id,
             "❌ No live IPL match right now.\n\n"
-            "Send /debuglive to inspect API."
+            "I will auto-alert when thrills happen! 🔔"
         )
         return
 
     bot.send_message(
         message.chat.id,
         f"🏏 <b>{match['team1']}</b> vs <b>{match['team2']}</b>\n\n"
-        f"📊 {match['status']}\n"
-        f"🧭 State: {match['state']}\n\n"
-        f"✅ You will get automatic THRILL alerts!",
+        f"📊 {match['status']}\n\n"
+        f"✅ Thrill alerts are ON!",
         parse_mode="HTML"
     )
+
 
 @bot.message_handler(func=lambda m: True)
 def catch_all(message):
@@ -138,19 +170,35 @@ def catch_all(message):
     )
 
 # ─────────────────────────────────────────
-# THRILL POLLING LOOP
+# SMART THRILL POLLING LOOP
 # ─────────────────────────────────────────
 
 def thrill_poll_loop():
-    print("🚀 Thrill Polling Started")
+    print("🚀 Smart Thrill Engine Started")
 
     while True:
         try:
+            now = datetime.now()
+
+            # STEP 1: Match time hai ya nahi?
+            if not is_match_time_now():
+                # No match window - sleep 30 min
+                # ZERO API calls
+                hour = now.hour
+                if 8 <= hour <= 14:
+                    print(f"😴 No match window - sleep 1 hour")
+                    time.sleep(3600)
+                else:
+                    print(f"😴 No match window - sleep 30 min")
+                    time.sleep(1800)
+                continue
+
+            # STEP 2: Match time hai - API call karo
             match = get_live_ipl_match()
 
             if not match:
-                print("No match - sleep 10 min")
-                time.sleep(600)
+                print("Match window but no live match yet - check in 15 min")
+                time.sleep(900)
                 continue
 
             mid = match["match_id"]
@@ -158,7 +206,7 @@ def thrill_poll_loop():
             # New match announcement
             if current_match["match_id"] != mid:
                 current_match["match_id"] = mid
-                print(f"New match: {match['team1']} vs {match['team2']}")
+                print(f"🏏 {match['team1']} vs {match['team2']}")
                 broadcast(
                     f"🏏 <b>Match Alert!</b>\n\n"
                     f"<b>{match['team1']}</b> vs "
@@ -166,35 +214,68 @@ def thrill_poll_loop():
                     f"Monitoring for THRILLS! 👀"
                 )
 
-            # Scorecard
+            # STEP 3: Scorecard check
             scard = get_match_scorecard(mid)
             data = parse_current_innings(scard)
 
             if data:
                 overs = data["overs"]
-                innings = data["innings_id"]
+                wickets = data["wickets"]
+                innings_id = data["innings_id"]
+                target = data.get("target")
 
+                # Detect thrills
                 alerts = detect_thrills(mid, data)
                 for alert in alerts:
-                    print(f"THRILL: {alert['type']}")
+                    print(f"🎯 {alert['type']}")
                     broadcast(alert["message"])
 
-                # Smart polling
-                if overs >= 16.0:
-                    wait = 120   # 2 min - last 4 overs
-                elif innings == 2 and overs >= 12.0:
-                    wait = 180   # 3 min
-                else:
-                    wait = 600   # 10 min normal
-            else:
-                wait = 600
+                # STEP 4: SMART POLLING SPEED
+                # Normal game = slow (save API)
+                # Thriller zone = fast
 
-            print(f"Next check in {wait//60} min")
+                if innings_id == 2 and target:
+                    runs_needed = target - data["runs"]
+                    balls_left = max(1, int((20 - overs) * 6))
+
+                    # SUPER THRILLER: last 3 overs, close
+                    if overs >= 17.0 and 0 < runs_needed <= 30:
+                        wait = 120  # 2 min
+                        print(f"🔥 THRILLER MODE - 2 min poll")
+
+                    # THRILLER ZONE: last 5 overs
+                    elif overs >= 15.0 and 0 < runs_needed <= 50:
+                        wait = 300  # 5 min
+                        print(f"🔴 CLOSE CHASE - 5 min poll")
+
+                    # Normal 2nd innings
+                    else:
+                        wait = 600  # 10 min
+                        print(f"⏱️ Normal chase - 10 min poll")
+
+                # 1st innings
+                elif innings_id == 1:
+                    if wickets >= 5:
+                        wait = 300  # 5 min - collapse possible
+                        print(f"⚠️ Wickets falling - 5 min poll")
+                    elif overs >= 16.0:
+                        wait = 300  # 5 min - death overs
+                        print(f"💥 Death overs - 5 min poll")
+                    else:
+                        wait = 1200  # 20 min normal
+                        print(f"😎 Normal batting - 20 min poll")
+
+                else:
+                    wait = 600
+
+            else:
+                wait = 900  # 15 min if no scorecard
+
             time.sleep(wait)
 
         except Exception as e:
             print(f"Poll error: {e}")
-            time.sleep(300)
+            time.sleep(600)
 
 # ─────────────────────────────────────────
 # START
@@ -203,8 +284,10 @@ def thrill_poll_loop():
 if __name__ == "__main__":
     print("Starting Thrill Alert Bot...")
 
+    # Web server
     threading.Thread(target=run_server, daemon=True).start()
 
+    # Webhook clear
     try:
         req.get(
             f"https://api.telegram.org/bot{TOKEN}"
@@ -217,8 +300,9 @@ if __name__ == "__main__":
 
     time.sleep(2)
 
+    # Smart Thrill Engine
     threading.Thread(target=thrill_poll_loop, daemon=True).start()
-    print("Thrill polling started")
+    print("Smart Thrill Engine started")
 
     print("Bot polling started...")
     bot.polling(none_stop=True, timeout=30, interval=1)
