@@ -18,7 +18,7 @@ if not TOKEN:
 
 bot = TeleBot(TOKEN)
 
-# Store subscribed users
+# Subscribed users
 alert_users = set()
 current_match = {"match_id": None}
 
@@ -62,7 +62,7 @@ def get_menu():
     return kb
 
 # ─────────────────────────────────────────
-# BROADCAST TO ALL SUBSCRIBED USERS
+# BROADCAST
 # ─────────────────────────────────────────
 
 def broadcast(text):
@@ -95,6 +95,7 @@ def start_cmd(message):
 
 @bot.message_handler(commands=["debuglive"])
 def debug_cmd(message):
+    alert_users.add(message.from_user.id)
     report = debug_ipl_status()
     bot.send_message(
         message.chat.id,
@@ -109,10 +110,11 @@ def live_match_handler(message):
     print(f"Live button from {uid}")
 
     match = get_live_ipl_match()
+
     if not match:
         bot.send_message(
             message.chat.id,
-            "❌ No live IPL match right now.\n"
+            "❌ No live IPL match right now.\n\n"
             "Send /debuglive to inspect API."
         )
         return
@@ -140,14 +142,14 @@ def catch_all(message):
 # ─────────────────────────────────────────
 
 def thrill_poll_loop():
-    print("🚀 Thrill Polling Loop Started")
+    print("🚀 Thrill Polling Started")
 
     while True:
         try:
             match = get_live_ipl_match()
 
             if not match:
-                print("😴 No match - sleep 10 min")
+                print("No match - sleep 10 min")
                 time.sleep(600)
                 continue
 
@@ -156,7 +158,7 @@ def thrill_poll_loop():
             # New match announcement
             if current_match["match_id"] != mid:
                 current_match["match_id"] = mid
-                print(f"🏏 New match: {match['team1']} vs {match['team2']}")
+                print(f"New match: {match['team1']} vs {match['team2']}")
                 broadcast(
                     f"🏏 <b>Match Alert!</b>\n\n"
                     f"<b>{match['team1']}</b> vs "
@@ -164,7 +166,7 @@ def thrill_poll_loop():
                     f"Monitoring for THRILLS! 👀"
                 )
 
-            # Get scorecard
+            # Scorecard
             scard = get_match_scorecard(mid)
             data = parse_current_innings(scard)
 
@@ -172,28 +174,26 @@ def thrill_poll_loop():
                 overs = data["overs"]
                 innings = data["innings_id"]
 
-                # Detect thrills
                 alerts = detect_thrills(mid, data)
-
                 for alert in alerts:
-                    print(f"🎯 THRILL: {alert['type']}")
+                    print(f"THRILL: {alert['type']}")
                     broadcast(alert["message"])
 
-                # Smart polling speed
+                # Smart polling
                 if overs >= 16.0:
-                    wait = 120  # 2 min - last 4 overs
+                    wait = 120   # 2 min - last 4 overs
                 elif innings == 2 and overs >= 12.0:
-                    wait = 180  # 3 min
+                    wait = 180   # 3 min
                 else:
-                    wait = 600  # 10 min normal
+                    wait = 600   # 10 min normal
             else:
                 wait = 600
 
-            print(f"⏱️ Next check in {wait//60} min")
+            print(f"Next check in {wait//60} min")
             time.sleep(wait)
 
         except Exception as e:
-            print(f"❌ Poll error: {e}")
+            print(f"Poll error: {e}")
             time.sleep(300)
 
 # ─────────────────────────────────────────
@@ -203,13 +203,12 @@ def thrill_poll_loop():
 if __name__ == "__main__":
     print("Starting Thrill Alert Bot...")
 
-    # Web server
     threading.Thread(target=run_server, daemon=True).start()
 
-    # Webhook clear
     try:
         req.get(
-            f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true",
+            f"https://api.telegram.org/bot{TOKEN}"
+            f"/deleteWebhook?drop_pending_updates=true",
             timeout=10
         )
         print("Webhook cleared")
@@ -218,7 +217,6 @@ if __name__ == "__main__":
 
     time.sleep(2)
 
-    # Start thrill polling loop
     threading.Thread(target=thrill_poll_loop, daemon=True).start()
     print("Thrill polling started")
 
