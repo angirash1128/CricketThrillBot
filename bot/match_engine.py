@@ -6,9 +6,6 @@ BASE_URL = "https://api.cricapi.com/v1"
 
 
 def get_live_ipl_match():
-    """
-    CricketData.org se live IPL match dhundo
-    """
     try:
         url = f"{BASE_URL}/cricScore"
         params = {"apikey": CRICAPI_KEY}
@@ -17,53 +14,70 @@ def get_live_ipl_match():
         print(f"CricAPI status: {response.status_code}")
 
         if response.status_code != 200:
-            print(f"CricAPI error: {response.text[:200]}")
+            print(f"Error: {response.text[:200]}")
             return None
 
         data = response.json()
 
         if data.get("status") != "success":
-            print(f"CricAPI not success: {data.get('status')}")
+            print(f"API status: {data.get('status')}")
             return None
 
         matches = data.get("data", [])
+        print(f"Total matches: {len(matches)}")
 
         for match in matches:
-            name = match.get("name", "").upper()
-            series = match.get("series", "").upper()
-            ms = match.get("ms", "")  # match state
+            # CricketData fields
+            name = match.get("name", "") or ""
+            series = match.get("series", "") or ""
+            ms = match.get("ms", "") or ""
+            match_type = match.get("matchType", "") or ""
 
-            # IPL check
-            if "IPL" in name or "IPL" in series or "INDIAN PREMIER" in name:
-                # Live match check
-                if ms in ["live", "result"] or "live" in ms.lower():
-                    team1 = match.get("t1", "Team A")
-                    team2 = match.get("t2", "Team B")
-                    status = match.get("status", "Live")
-                    match_id = match.get("id", "")
+            name_upper = name.upper()
+            series_upper = series.upper()
 
-                    print(f"✅ IPL Live: {team1} vs {team2} | {ms}")
+            # IPL detection
+            is_ipl = (
+                "IPL" in name_upper or
+                "IPL" in series_upper or
+                "INDIAN PREMIER" in name_upper or
+                "INDIAN PREMIER" in series_upper
+            )
+
+            if is_ipl:
+                print(f"IPL Found: {name} | ms={ms}")
+
+                # Live check
+                is_live = ms.lower() in [
+                    "live", "in progress",
+                    "innings break", "toss"
+                ]
+
+                if is_live:
+                    t1 = match.get("t1", "") or match.get("team1", "") or "Team A"
+                    t2 = match.get("t2", "") or match.get("team2", "") or "Team B"
+                    status = match.get("status", "Live") or "Live"
+                    match_id = match.get("id", "") or ""
+
+                    print(f"✅ LIVE IPL: {t1} vs {t2}")
 
                     return {
                         "match_id": str(match_id),
-                        "team1": team1,
-                        "team2": team2,
+                        "team1": t1,
+                        "team2": t2,
                         "status": status,
                         "state": ms
                     }
 
-        print("No live IPL match found")
+        print("No live IPL match")
         return None
 
     except Exception as e:
-        print(f"get_live_ipl_match error: {e}")
+        print(f"Error: {e}")
         return None
 
 
 def get_match_scorecard(match_id):
-    """
-    Specific match ka scorecard lo
-    """
     try:
         url = f"{BASE_URL}/match"
         params = {
@@ -83,14 +97,11 @@ def get_match_scorecard(match_id):
         return data.get("data", None)
 
     except Exception as e:
-        print(f"get_match_scorecard error: {e}")
+        print(f"Scorecard error: {e}")
         return None
 
 
 def parse_current_innings(match_data):
-    """
-    Match data se current innings info nikalo
-    """
     try:
         if not match_data:
             return None
@@ -100,74 +111,82 @@ def parse_current_innings(match_data):
         if not score_list:
             return None
 
-        # Last innings = current
         current = score_list[-1]
-
-        runs = current.get("r", 0)
-        wickets = current.get("w", 0)
-        overs = current.get("o", 0.0)
+        runs = int(current.get("r", 0) or 0)
+        wickets = int(current.get("w", 0) or 0)
+        overs = float(current.get("o", 0.0) or 0.0)
         innings_id = len(score_list)
 
-        # Target for 2nd innings
         target = None
         if innings_id == 2 and len(score_list) >= 1:
-            first_innings = score_list[0]
-            target = first_innings.get("r", 0) + 1
+            first = score_list[0]
+            target = int(first.get("r", 0) or 0) + 1
 
         return {
             "innings_id": innings_id,
-            "runs": int(runs),
-            "wickets": int(wickets),
-            "overs": float(overs),
+            "runs": runs,
+            "wickets": wickets,
+            "overs": overs,
             "target": target
         }
 
     except Exception as e:
-        print(f"parse_current_innings error: {e}")
+        print(f"Parse error: {e}")
         return None
 
 
 def debug_ipl_status():
-    """
-    Debug report for bot
-    """
     try:
         url = f"{BASE_URL}/cricScore"
         params = {"apikey": CRICAPI_KEY}
         response = requests.get(url, params=params, timeout=15)
 
         if response.status_code != 200:
-            return f"API Error: {response.status_code}\n{response.text[:200]}"
+            return f"API Error: {response.status_code}"
 
         data = response.json()
 
         if data.get("status") != "success":
-            return f"API Status: {data.get('status')}\nInfo: {data.get('info', '')}"
+            return f"Status: {data.get('status')}"
 
         matches = data.get("data", [])
-        lines = [f"Total matches in API: {len(matches)}\n"]
+        lines = [f"Total matches: {len(matches)}\n"]
 
         ipl_found = False
-        for match in matches:
-            name = match.get("name", "")
-            series = match.get("series", "")
-            ms = match.get("ms", "")
-            t1 = match.get("t1", "")
-            t2 = match.get("t2", "")
+        live_found = False
 
-            if "IPL" in name.upper() or "IPL" in series.upper():
+        for match in matches:
+            name = match.get("name", "") or ""
+            series = match.get("series", "") or ""
+            ms = match.get("ms", "") or ""
+            t1 = match.get("t1", "") or ""
+            t2 = match.get("t2", "") or ""
+
+            if ("IPL" in name.upper() or
+                    "IPL" in series.upper() or
+                    "INDIAN PREMIER" in name.upper()):
                 ipl_found = True
                 lines.append(
-                    f"✅ IPL: {t1} vs {t2}\n"
-                    f"   state={ms}\n"
-                    f"   series={series}"
+                    f"IPL: {t1} vs {t2}\n"
+                    f"  ms={ms}\n"
+                    f"  name={name}\n"
+                    f"  series={series}"
                 )
 
+                if ms.lower() in ["live", "in progress", "innings break"]:
+                    live_found = True
+
         if not ipl_found:
-            lines.append("❌ No IPL match found in API response")
-            lines.append("\nAll matches:")
+            lines.append("No IPL match in API\n")
+            lines.append("Sample matches (first 5):")
             for m in matches[:5]:
-                lines.append(f"  - {m.get('name', 'unknown')} | {m.get('ms', '')}")
+                name = m.get("name", "no name")
+                ms = m.get("ms", "no ms")
+                series = m.get("series", "no series")
+                lines.append(f"  name={name} | ms={ms} | series={series}")
+
+        if ipl_found and not live_found:
+            lines.append("\nIPL match found but NOT live yet")
 
         return "\n".join(lines)
 
@@ -195,7 +214,6 @@ def detect_thrills(match_id, innings_data):
 
     tr = match_trackers[match_id]
 
-    # Innings change
     if tr["innings_id"] != innings_data["innings_id"]:
         match_trackers[match_id] = {
             "innings_id": innings_data["innings_id"],
@@ -223,7 +241,7 @@ def detect_thrills(match_id, innings_data):
         })
         tr["wicket_count"] = wickets
 
-    # Momentum shift
+    # Momentum
     if (runs - tr["momentum_baseline"]) >= 12:
         alerts.append({
             "type": "momentum",
@@ -236,7 +254,7 @@ def detect_thrills(match_id, innings_data):
         })
         tr["momentum_baseline"] = runs
 
-    # Thriller finish
+    # Thriller
     if (
         target
         and innings_data["innings_id"] == 2
