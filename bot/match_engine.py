@@ -1,140 +1,221 @@
+# match_engine.py
+# Live Match Data + Thrill Detection
+# API calls sirf background polling se
+# User clicks pe 0 API calls
+
 import os
 import requests
+from datetime import datetime
+from ipl_schedule import get_cache, update_cache
 
 CRICAPI_KEY = os.environ.get("CRICAPI_KEY")
 BASE_URL = "https://api.cricapi.com/v1"
 
 
-def get_live_ipl_match():
+# ─────────────────────────────────────────
+# LIVE MATCH FETCH (Background polling se)
+# ─────────────────────────────────────────
+
+def fetch_live_match():
     """
-    Live IPL match dhundo - 1 API call
+    API se live IPL match fetch karo - 1 call
+    Data cache mein save karo
+    Ye SIRF background polling se call hogi
+    User click se KABHI nahi
     """
     try:
         url = f"{BASE_URL}/cricScore"
         params = {"apikey": CRICAPI_KEY}
         response = requests.get(url, params=params, timeout=15)
 
+        now = datetime.now().strftime("%H:%M")
+        update_cache("last_api_call", now)
+
         if response.status_code != 200:
-            print(f"CricScore error: {response.status_code}")
+            print(f"API error: {response.status_code}")
             return None
 
         data = response.json()
+
         if data.get("status") != "success":
+            info = data.get("info", {})
+            hits = info.get("hitsToday", 0)
+            limit = info.get("hitsLimit", 100)
+            print(f"API status: {data.get('status')} | Hits: {hits}/{limit}")
             return None
+
+        # API hits info log karo
+        info = data.get("info", {})
+        hits = info.get("hitsToday", 0)
+        limit = info.get("hitsLimit", 100)
+        print(f"API Hits: {hits}/{limit}")
 
         matches = data.get("data", [])
 
         for match in matches:
-            # Try all possible field names
-            name = (
-                match.get("name", "") or
-                match.get("matchName", "") or
-                match.get("title", "") or ""
-            )
+            # Fields - multiple naam try karo
             series = (
                 match.get("series", "") or
                 match.get("seriesName", "") or ""
             )
-            ms = (
-                match.get("ms", "") or
-                match.get("matchStatus", "") or
-                match.get("status", "") or ""
-            )
 
-            name_upper = name.upper()
+            # IPL check
             series_upper = series.upper()
-
-            is_ipl = (
-                "IPL" in name_upper or
-                "IPL" in series_upper or
-                "INDIAN PREMIER" in name_upper or
-                "INDIAN PREMIER" in series_upper
-            )
-
-            if not is_ipl:
+            if "IPL" not in series_upper and "INDIAN PREMIER" not in series_upper:
                 continue
 
-            ms_lower = ms.lower()
-            is_live = (
-                "live" in ms_lower or
-                "progress" in ms_lower or
-                "innings" in ms_lower or
-                "toss" in ms_lower or
-                "break" in ms_lower
+            # Match status
+            ms = (
+                match.get("ms", "") or
+                match.get("matchStatus", "") or ""
+            ).lower()
+
+            # Sirf live/active matches
+            is_active = (
+                "live" in ms or
+                "progress" in ms or
+                "innings" in ms or
+                "break" in ms or
+                "toss" in ms
             )
 
-            if is_live:
-                # Team names - try multiple fields
-                t1 = (
-                    match.get("t1", "") or
-                    match.get("team1", "") or
-                    match.get("teamInfo", [{}])[0].get("name", "") if match.get("teamInfo") else ""
-                ) or "Team A"
+            if not is_active:
+                continue
 
-                t2 = (
-                    match.get("t2", "") or
-                    match.get("team2", "") or
-                    match.get("teamInfo", [{}])[1].get("name", "") if match.get("teamInfo") and len(match.get("teamInfo", [])) > 1 else ""
-                ) or "Team B"
+            # Match data extract karo
+            match_id = str(
+                match.get("id", "") or
+                match.get("matchId", "") or ""
+            )
 
-                match_id = (
-                    match.get("id", "") or
-                    match.get("matchId", "") or ""
-                )
+            # Team names - har possible field try karo
+            t1 = ""
+            t2 = ""
 
-                status = (
-                    match.get("status", "") or
-                    match.get("matchStatus", "") or "Live"
-                )
+            # Method 1: t1, t2 fields
+            t1 = match.get("t1", "") or ""
+            t2 = match.get("t2", "") or ""
 
-                # Toss info
-                toss = match.get("tpiw", "") or match.get("toss", "") or ""
+            # Method 2: teamInfo array
+            if not t1 and match.get("teamInfo"):
+                team_info = match.get("teamInfo", [])
+                if len(team_info) >= 1:
+                    t1 = team_info[0].get("name", "") or team_info[0].get("shortname", "") or ""
+                if len(team_info) >= 2:
+                    t2 = team_info[1].get("name", "") or team_info[1].get("shortname", "") or ""
 
-                print(f"IPL LIVE: {t1} vs {t2} | {ms}")
+            # Method 3: name field se parse
+            if not t1:
+                name = match.get("name", "") or match.get("matchName", "") or ""
+                if " vs " in name:
+                    parts = name.split(" vs ")
+                    t1 = parts[0].strip()
+                    t2 = parts[1].strip() if len(parts) > 1 else ""
 
-                return {
-                    "match_id": str(match_id),
-                    "team1": t1,
-                    "team2": t2,
-                    "status": status,
-                    "state": ms,
-                    "toss": toss,
-                    "name": name
-                }
+            # Fallback
+            if not t1:
+                t1 = "Team 1"
+            if not t2:
+                t2 = "Team 2"
 
+            # Status
+            status = (
+                match.get("status", "") or
+                match.get("matchStatus", "") or "Live"
+            )
+
+            # Toss
+            toss = match.get("tpiw", "") or match.get("toss", "") or ""
+
+            # Score
+            t1s = match.get("t1s", "") or ""
+            t2s = match.get("t2s", "") or ""
+
+            live_data = {
+                "match_id": match_id,
+                "team1": t1,
+                "team2": t2,
+                "status": status,
+                "state": ms,
+                "toss": toss,
+                "series": series,
+                "t1_score": t1s,
+                "t2_score": t2s
+            }
+
+            # Cache mein save karo
+            update_cache("live_match", live_data)
+
+            print(f"✅ IPL Live: {t1} vs {t2} | {ms}")
+            return live_data
+
+        # Koi live IPL match nahi mila
+        update_cache("live_match", None)
+        print("No live IPL match")
         return None
 
     except Exception as e:
-        print(f"get_live_ipl_match error: {e}")
+        print(f"fetch_live_match error: {e}")
         return None
 
 
-def get_match_scorecard(match_id):
+def get_live_ipl_match():
     """
-    Match ka detailed scorecard - 1 API call
+    Cached live match data return karo
+    0 API calls - sirf cache se
+    """
+    return get_cache()["live_match"]
+
+
+# ─────────────────────────────────────────
+# SCORECARD FETCH (Background polling se)
+# ─────────────────────────────────────────
+
+def fetch_scorecard(match_id):
+    """
+    Match ka scorecard fetch karo - 1 API call
+    Cache mein save karo
+    SIRF background polling se
     """
     try:
-        url = f"{BASE_URL}/match"
+        url = f"{BASE_URL}/match_info"
         params = {"apikey": CRICAPI_KEY, "id": match_id}
         response = requests.get(url, params=params, timeout=15)
+
+        now = datetime.now().strftime("%H:%M")
+        update_cache("last_api_call", now)
 
         if response.status_code != 200:
             return None
 
         data = response.json()
+
         if data.get("status") != "success":
             return None
 
-        return data.get("data", None)
+        match_data = data.get("data", None)
+        update_cache("live_scorecard", match_data)
+
+        return match_data
 
     except Exception as e:
-        print(f"scorecard error: {e}")
+        print(f"fetch_scorecard error: {e}")
         return None
 
+
+def get_match_scorecard(match_id):
+    """Cached scorecard return karo - 0 API calls"""
+    return get_cache()["live_scorecard"]
+
+
+# ─────────────────────────────────────────
+# INNINGS PARSING
+# ─────────────────────────────────────────
 
 def parse_current_innings(match_data):
     """
     Match data se current innings ki info nikalo
+    0 API calls - cached data se
     """
     try:
         if not match_data:
@@ -145,23 +226,23 @@ def parse_current_innings(match_data):
             return None
 
         current = score_list[-1]
+
         runs = int(current.get("r", 0) or 0)
         wickets = int(current.get("w", 0) or 0)
         overs = float(current.get("o", 0.0) or 0.0)
-        innings_id = len(score_list)
         inning_name = current.get("inning", "") or ""
+        innings_id = len(score_list)
 
+        # Target (2nd innings)
         target = None
         if innings_id >= 2:
             first = score_list[0]
             target = int(first.get("r", 0) or 0) + 1
 
-        # Run rate calculate karo
-        run_rate = 0.0
-        if overs > 0:
-            run_rate = round(runs / overs, 2)
+        # Run rate
+        run_rate = round(runs / overs, 2) if overs > 0 else 0.0
 
-        # Required run rate (2nd innings)
+        # Required run rate
         req_rate = 0.0
         if target and innings_id >= 2 and overs < 20:
             balls_left = max(1, int((20 - overs) * 6))
@@ -170,7 +251,7 @@ def parse_current_innings(match_data):
             if overs_left > 0:
                 req_rate = round(runs_needed / overs_left, 2)
 
-        return {
+        innings_data = {
             "innings_id": innings_id,
             "inning_name": inning_name,
             "runs": runs,
@@ -181,64 +262,69 @@ def parse_current_innings(match_data):
             "req_rate": req_rate
         }
 
+        update_cache("live_innings", innings_data)
+        return innings_data
+
     except Exception as e:
         print(f"parse error: {e}")
         return None
 
 
+# ─────────────────────────────────────────
+# DEBUG (1 API call - emergency only)
+# ─────────────────────────────────────────
+
 def debug_ipl_status():
-    """Debug report"""
-    try:
-        url = f"{BASE_URL}/cricScore"
-        params = {"apikey": CRICAPI_KEY}
-        response = requests.get(url, params=params, timeout=15)
+    """
+    Debug report - ye API call use karta hai
+    Sirf emergency mein use karo
+    """
+    cache = get_cache()
 
-        if response.status_code != 200:
-            return f"API Error: {response.status_code}"
+    lines = []
+    lines.append("=== CACHE STATUS ===\n")
 
-        data = response.json()
-        if data.get("status") != "success":
-            info = data.get("info", "no info")
-            return f"Status: {data.get('status')}\nInfo: {info}"
+    # Schedule
+    schedule_count = len(cache["schedule"])
+    lines.append(f"Schedule cached: {schedule_count} matches")
+    lines.append(f"Schedule fetched: {cache['schedule_fetched']}")
 
-        matches = data.get("data", [])
-        lines = [f"Total matches: {len(matches)}\n"]
+    # Live match
+    live = cache["live_match"]
+    if live:
+        lines.append(
+            f"\nLive: {live['team1']} vs {live['team2']}"
+            f"\nState: {live['state']}"
+            f"\nStatus: {live['status']}"
+            f"\n{live['team1']}: {live.get('t1_score', '-')}"
+            f"\n{live['team2']}: {live.get('t2_score', '-')}"
+        )
+    else:
+        lines.append("\nLive: No match in cache")
 
-        ipl_count = 0
-        for match in matches:
-            name = match.get("name", "") or match.get("matchName", "") or ""
-            series = match.get("series", "") or match.get("seriesName", "") or ""
-            ms = match.get("ms", "") or match.get("matchStatus", "") or ""
-            t1 = match.get("t1", "") or match.get("team1", "") or ""
-            t2 = match.get("t2", "") or match.get("team2", "") or ""
+    # Innings
+    innings = cache["live_innings"]
+    if innings:
+        lines.append(
+            f"\nInnings: {innings['innings_id']}"
+            f"\nScore: {innings['runs']}/{innings['wickets']}"
+            f"\nOvers: {innings['overs']}"
+            f"\nRR: {innings['run_rate']}"
+            f"\nReq RR: {innings['req_rate']}"
+        )
 
-            if "IPL" in name.upper() or "IPL" in series.upper() or "INDIAN PREMIER" in name.upper():
-                ipl_count += 1
-                lines.append(
-                    f"✅ IPL: {t1} vs {t2}\n"
-                    f"   ms={ms}\n"
-                    f"   series={series}"
-                )
+    # API info
+    lines.append(f"\nLast API call: {cache['last_api_call'] or 'Never'}")
+    lines.append(f"Match started: {cache['match_started']}")
+    lines.append(f"Match ended: {cache['match_ended']}")
+    lines.append(f"Toss notified: {cache['toss_notified']}")
 
-        if ipl_count == 0:
-            lines.append("❌ No IPL match found\n")
-            lines.append("Sample (first 5):")
-            for m in matches[:5]:
-                n = m.get("name", "") or m.get("matchName", "") or "no name"
-                s = m.get("series", "") or m.get("seriesName", "") or "no series"
-                ms = m.get("ms", "") or m.get("matchStatus", "") or "no ms"
-                lines.append(f"  name={n[:40]}")
-                lines.append(f"  series={s[:30]}")
-                lines.append(f"  ms={ms}\n")
-
-        return "\n".join(lines)
-
-    except Exception as e:
-        return f"Error: {e}"
+    return "\n".join(lines)
 
 
 # ─────────────────────────────────────────
 # THRILL DETECTION ENGINE
+# IPL Specific - Professional Calibration
 # ─────────────────────────────────────────
 
 match_trackers = {}
@@ -249,18 +335,18 @@ def detect_thrills(match_id, innings_data):
     IPL-specific thrill detection
 
     IPL Normal Values:
-    - Average score: 170-180
+    - Average 1st innings: 170-180
     - Normal run rate: 8.5-9.0
     - Death overs RR: 10-14
     - Powerplay RR: 8-10
 
     THRILL triggers:
-    - 18+ runs in last check (explosive over)
-    - 2+ wickets since last check (collapse starting)
-    - 5+ total wickets (deep trouble)
-    - Last 5 overs + close chase
-    - Last 2 overs + very close
-    - Required rate 14+ (very difficult chase)
+    1. 2+ wickets since last check = collapse sign
+    2. 5+ total wickets with low score = deep trouble
+    3. 18+ runs since last check = explosive batting
+    4. Last 5 overs + close chase = thriller
+    5. Last 3 overs + very close = nail biter
+    6. Required rate 14+ = steep chase
     """
     alerts = []
 
@@ -277,15 +363,16 @@ def detect_thrills(match_id, innings_data):
             "last_runs": innings_data["runs"],
             "last_overs": innings_data["overs"],
             "thriller_alerted": False,
-            "collapse_alerted": False,
             "super_thriller_alerted": False,
-            "explosive_alerted_at": 0
+            "collapse_alerted": False,
+            "explosive_alerted_at": 0,
+            "steep_chase_alerted": False
         }
         return alerts
 
     tr = match_trackers[mid]
 
-    # Innings change - reset
+    # Innings change - reset tracker
     if tr["innings_id"] != innings_data["innings_id"]:
         match_trackers[mid] = {
             "innings_id": innings_data["innings_id"],
@@ -293,9 +380,10 @@ def detect_thrills(match_id, innings_data):
             "last_runs": innings_data["runs"],
             "last_overs": innings_data["overs"],
             "thriller_alerted": False,
-            "collapse_alerted": False,
             "super_thriller_alerted": False,
-            "explosive_alerted_at": 0
+            "collapse_alerted": False,
+            "explosive_alerted_at": 0,
+            "steep_chase_alerted": False
         }
         return alerts
 
@@ -308,42 +396,27 @@ def detect_thrills(match_id, innings_data):
 
     runs_diff = runs - tr["last_runs"]
     wickets_diff = wickets - tr["wicket_count"]
-    overs_diff = overs - tr["last_overs"]
 
     # ─── WICKET ALERTS ───
 
-    # Multiple wickets fell quickly (2+ since last check)
+    # Multiple wickets (2+ since last check)
     if wickets_diff >= 2:
         alerts.append({
             "type": "collapse",
             "is_mega": True,
             "message": (
                 f"😱 <b>WICKETS TUMBLING!</b>\n\n"
-                f"{wickets_diff} wickets fell!\n"
+                f"{wickets_diff} wickets fell since last update!\n"
                 f"Score: {runs}/{wickets} ({overs} ov)\n"
                 f"Run Rate: {run_rate}\n\n"
-                f"Match turning! 🔥"
+                f"Match is turning! 🔥"
             )
         })
-        tr["wicket_count"] = wickets
 
-    # Single important wicket (5+ wickets = deep trouble)
-    elif wickets_diff == 1 and wickets >= 5:
-        alerts.append({
-            "type": "wicket",
-            "is_mega": False,
-            "message": (
-                f"🚨 <b>WICKET!</b>\n\n"
-                f"Score: {runs}/{wickets} ({overs} ov)\n"
-                f"Team in trouble! 😰"
-            )
-        })
-        tr["wicket_count"] = wickets
-
-    # Batting collapse (5+ wickets with low score)
+    # Deep trouble (5+ wickets, below par)
     elif wickets >= 5 and not tr["collapse_alerted"]:
-        expected_score = overs * 8.5  # IPL average
-        if runs < expected_score * 0.7:  # 30% below average
+        expected = overs * 8.5
+        if runs < expected * 0.7:
             alerts.append({
                 "type": "collapse",
                 "is_mega": True,
@@ -351,10 +424,22 @@ def detect_thrills(match_id, innings_data):
                     f"💥 <b>BATTING COLLAPSE!</b>\n\n"
                     f"Score: {runs}/{wickets} ({overs} ov)\n"
                     f"Run Rate: {run_rate}\n"
-                    f"Well below par score! 📉"
+                    f"Well below par! 📉"
                 )
             })
             tr["collapse_alerted"] = True
+
+    # Single wicket but team in trouble (6+ down)
+    elif wickets_diff == 1 and wickets >= 6:
+        alerts.append({
+            "type": "wicket",
+            "is_mega": False,
+            "message": (
+                f"🚨 <b>WICKET!</b>\n\n"
+                f"Score: {runs}/{wickets} ({overs} ov)\n"
+                f"Team in deep trouble! 😰"
+            )
+        })
 
     # Update wicket count
     if wickets > tr["wicket_count"]:
@@ -362,32 +447,30 @@ def detect_thrills(match_id, innings_data):
 
     # ─── EXPLOSIVE BATTING ───
 
-    # 18+ runs since last check (IPL mein 18+ in ~2-3 overs is explosive)
-    if runs_diff >= 18 and overs > tr.get("explosive_alerted_at", 0) + 2:
+    if (runs_diff >= 18 and
+            overs > tr.get("explosive_alerted_at", 0) + 2):
         alerts.append({
             "type": "explosive",
             "is_mega": False,
             "message": (
                 f"💥 <b>EXPLOSIVE BATTING!</b>\n\n"
-                f"{runs_diff} runs scored!\n"
+                f"{runs_diff} runs scored since last update!\n"
                 f"Score: {runs}/{wickets} ({overs} ov)\n"
                 f"Run Rate: {run_rate} 🚀"
             )
         })
         tr["explosive_alerted_at"] = overs
 
-    # ─── THRILLER CHASE (2nd innings only) ───
+    # ─── THRILLER CHASE (2nd innings) ───
 
     if target and innings_data["innings_id"] >= 2:
         runs_needed = target - runs
         balls_left = max(1, int((20 - overs) * 6))
 
-        # Last 5 overs + close match
-        if (
-            overs >= 15.0
-            and 0 < runs_needed <= 60
-            and not tr["thriller_alerted"]
-        ):
+        # Last 5 overs + close (need <= 60)
+        if (overs >= 15.0 and
+                0 < runs_needed <= 60 and
+                not tr["thriller_alerted"]):
             alerts.append({
                 "type": "thriller",
                 "is_mega": True,
@@ -396,17 +479,15 @@ def detect_thrills(match_id, innings_data):
                     f"Need {runs_needed} off {balls_left} balls!\n"
                     f"Score: {runs}/{wickets} ({overs} ov)\n"
                     f"Required Rate: {req_rate}\n\n"
-                    f"🏏 Game on!"
+                    f"🏏 Game ON!"
                 )
             })
             tr["thriller_alerted"] = True
 
-        # Last 3 overs + very close
-        if (
-            overs >= 17.0
-            and 0 < runs_needed <= 30
-            and not tr["super_thriller_alerted"]
-        ):
+        # Last 3 overs + very close (need <= 30)
+        if (overs >= 17.0 and
+                0 < runs_needed <= 30 and
+                not tr["super_thriller_alerted"]):
             alerts.append({
                 "type": "super_thriller",
                 "is_mega": True,
@@ -420,10 +501,12 @@ def detect_thrills(match_id, innings_data):
             })
             tr["super_thriller_alerted"] = True
 
-        # Required rate very high (14+) = difficult chase
-        if req_rate >= 14.0 and overs >= 10.0 and not tr.get("high_rr_alerted"):
+        # Steep chase (RRR 14+)
+        if (req_rate >= 14.0 and
+                overs >= 10.0 and
+                not tr.get("steep_chase_alerted")):
             alerts.append({
-                "type": "high_required",
+                "type": "steep_chase",
                 "is_mega": False,
                 "message": (
                     f"📈 <b>STEEP CHASE!</b>\n\n"
@@ -433,7 +516,7 @@ def detect_thrills(match_id, innings_data):
                     f"Can they pull it off? 🤔"
                 )
             })
-            tr["high_rr_alerted"] = True
+            tr["steep_chase_alerted"] = True
 
     # Update tracking
     tr["last_runs"] = runs
