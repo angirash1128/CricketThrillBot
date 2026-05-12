@@ -1,8 +1,8 @@
 # main.py
 # Thrill Alert Bot - Professional Cached Architecture
-# User clicks pe 0 API calls
-# Background polling se data fetch + cache
-# Thrill alerts automatic broadcast
+# User clicks = 0 API calls
+# Background polling = smart API calls
+# Automatic thrill notifications
 
 import os
 import time
@@ -43,7 +43,7 @@ if not TOKEN:
 
 bot = TeleBot(TOKEN)
 
-# Subscribed users (jo alerts chahte hain)
+# Users jo alerts chahte hain
 alert_users = set()
 
 # ─────────────────────────────────────────
@@ -90,14 +90,11 @@ def get_menu():
 
 
 # ─────────────────────────────────────────
-# BROADCAST (Saare users ko)
+# BROADCAST (0 API calls)
 # ─────────────────────────────────────────
 
 def broadcast(text):
-    """
-    Saare subscribed users ko message bhejo
-    0 API calls
-    """
+    """Saare subscribed users ko message bhejo"""
     count = 0
     for uid in list(alert_users):
         try:
@@ -107,19 +104,16 @@ def broadcast(text):
         except Exception:
             pass
     if count > 0:
-        print(f"📢 Broadcast sent to {count} users")
+        print(f"📢 Broadcast to {count} users")
 
 
 # ─────────────────────────────────────────
-# THRILL SCORE CALCULATOR
+# THRILL SCORE
 # ─────────────────────────────────────────
 
 def calculate_thrill_score(match_data):
-    """
-    Match ka Thrill Score calculate karo (1-10)
-    Match result ke baad call hoga
-    """
-    score = 3  # Base
+    """Match ka Thrill Score (1-10)"""
+    score = 3
 
     if not match_data:
         return score
@@ -127,7 +121,6 @@ def calculate_thrill_score(match_data):
     status = (match_data.get("status", "") or "").lower()
     score_list = match_data.get("score", [])
 
-    # Super close finish
     if "1 wkt" in status or "1 run" in status:
         score += 4
     elif "2 wkt" in status or "2 run" in status:
@@ -139,7 +132,6 @@ def calculate_thrill_score(match_data):
     elif "tie" in status:
         score += 5
 
-    # High scoring match
     if score_list:
         first = score_list[0]
         first_runs = int(first.get("r", 0) or 0)
@@ -148,7 +140,6 @@ def calculate_thrill_score(match_data):
         elif first_runs >= 190:
             score += 1
 
-    # Last over finish check
     if score_list and len(score_list) >= 2:
         second = score_list[-1]
         overs = float(second.get("o", 20) or 20)
@@ -159,7 +150,7 @@ def calculate_thrill_score(match_data):
 
 
 # ─────────────────────────────────────────
-# BOT HANDLERS
+# BOT HANDLERS (0 API calls - cache se)
 # ─────────────────────────────────────────
 
 @bot.message_handler(commands=["start"])
@@ -168,12 +159,15 @@ def start_cmd(message):
     name = message.from_user.first_name or "Cricket Fan"
     alert_users.add(uid)
 
-    # Today's matches - 0 API calls (cache se)
+    # Agar schedule cache empty hai to fetch karo
+    if not get_cache()["schedule_fetched"]:
+        print("📅 Fetching schedule on /start ...")
+        fetch_schedule()
+
     today = get_todays_matches()
 
     if today:
-        match_count = len(today)
-        match_info = f"\n📅 {match_count} IPL match(es) today!"
+        match_info = f"\n📅 {len(today)} IPL match(es) today!"
     else:
         match_info = "\n📅 No IPL match today"
 
@@ -197,19 +191,20 @@ def start_cmd(message):
 
 @bot.message_handler(func=lambda m: m.text == "📅 Today's Schedule")
 def schedule_handler(message):
-    """
-    Schedule dikhao - 0 API calls
-    Cache se data return karo
-    """
+    """Schedule - 0 API calls (cache se)"""
     alert_users.add(message.from_user.id)
 
-    # Agar schedule cache empty hai
-    # to user ko batao (background mein fetch hoga)
+    # Agar schedule load nahi hua to fetch karo
     if not get_cache()["schedule_fetched"]:
+        print("📅 Fetching schedule on button click ...")
+        fetch_schedule()
+
+    # Agar fetch ke baad bhi nahi mila
+    if not get_cache()["schedule_fetched"] or len(get_cache()["schedule"]) == 0:
         bot.send_message(
             message.chat.id,
-            "⏳ Schedule loading...\n"
-            "Please try again in 30 seconds.",
+            "⚠️ Schedule could not be loaded.\n"
+            "Please try again in 2 minutes.",
             parse_mode="HTML"
         )
         return
@@ -224,19 +219,14 @@ def schedule_handler(message):
 
 @bot.message_handler(func=lambda m: m.text == "🏏 Live IPL Match")
 def live_match_handler(message):
-    """
-    Live match dikhao - 0 API calls
-    Cache se data return karo
-    """
+    """Live match - 0 API calls (cache se)"""
     alert_users.add(message.from_user.id)
 
-    # Cache se data lo
     match = get_live_ipl_match()
 
     if not match:
         today = get_todays_matches()
         if today:
-            # Match scheduled but not started
             schedule_msg = format_schedule_message()
             bot.send_message(
                 message.chat.id,
@@ -250,44 +240,35 @@ def live_match_handler(message):
                 message.chat.id,
                 "❌ <b>No live IPL match right now</b>\n\n"
                 "I will auto-alert when match starts! 🔔\n\n"
-                "Tap 📅 Today's Schedule to check upcoming matches.",
+                "Tap 📅 Today's Schedule for upcoming matches.",
                 parse_mode="HTML"
             )
         return
 
-    # Live match info - cache se
+    # Live match info cache se
     msg_lines = [
         f"🏏 <b>{match['team1']}</b> vs <b>{match['team2']}</b>\n"
     ]
 
-    # Toss info
     if match.get("toss"):
         msg_lines.append(f"🪙 {match['toss']}\n")
 
-    # Current scores
     if match.get("t1_score"):
         msg_lines.append(f"📊 {match['team1']}: {match['t1_score']}")
     if match.get("t2_score"):
         msg_lines.append(f"📊 {match['team2']}: {match['t2_score']}")
 
-    # Status
     msg_lines.append(f"\n🔴 {match['status']}")
 
-    # Innings data
     innings = get_cache().get("live_innings")
     if innings:
-        msg_lines.append(
-            f"\n📈 Run Rate: {innings['run_rate']}"
-        )
+        msg_lines.append(f"\n📈 Run Rate: {innings['run_rate']}")
         if innings.get("req_rate", 0) > 0:
-            msg_lines.append(
-                f"⚡ Required Rate: {innings['req_rate']}"
-            )
+            msg_lines.append(f"⚡ Required Rate: {innings['req_rate']}")
 
-    # Last updated
     last_call = get_cache()["last_api_call"]
     if last_call:
-        msg_lines.append(f"\n📡 Last updated: {last_call}")
+        msg_lines.append(f"\n📡 Updated: {last_call}")
 
     msg_lines.append("\n✅ Thrill alerts are active!")
 
@@ -300,10 +281,7 @@ def live_match_handler(message):
 
 @bot.message_handler(commands=["debug"])
 def debug_cmd(message):
-    """
-    Debug - cache status dikhao
-    0 API calls (cache se)
-    """
+    """Debug - cache status (0 API calls)"""
     alert_users.add(message.from_user.id)
     report = debug_ipl_status()
     bot.send_message(
@@ -329,26 +307,28 @@ def catch_all(message):
 
 def smart_poll_loop():
     """
-    Professional polling loop:
+    Professional polling:
 
-    API Budget Plan (90 calls/day):
-    - Schedule fetch: 2 calls (startup only)
-    - Match window polling: ~20-30 calls/match
-    - Double header: ~50 calls total
-    - Buffer: 40 calls
+    API Budget (90 calls/day):
+    Schedule: 2 calls (startup)
+    Single match: ~20-25 calls
+    Double header: ~40-45 calls
+    Buffer: ~25 calls spare
 
-    Polling intervals:
-    - No match time: 0 calls (sleep)
-    - Match not started: 1 call per 10 min (check toss)
-    - Normal game: 1 call per 20 min
-    - Death overs: 1 call per 5 min
-    - Thriller zone: 1 call per 2 min
-    - Match over: 0 calls (sleep)
+    Intervals:
+    No match = 0 calls (sleep)
+    Waiting for start = 10 min
+    Normal batting = 20 min
+    Death overs = 5 min
+    Collapse = 5 min
+    Thriller chase = 5 min
+    Nail biter = 2 min
+    Match over = sleep
     """
     print("🚀 Smart Polling Engine Started")
 
-    # ─── STARTUP: Schedule fetch ───
-    print("📅 Fetching IPL Schedule...")
+    # Startup schedule fetch
+    print("📅 Fetching IPL Schedule ...")
     fetch_schedule()
 
     while True:
@@ -356,33 +336,30 @@ def smart_poll_loop():
             now = datetime.now()
             cache = get_cache()
 
-            # ─── SLEEP MODE ───
-            # Raat 12 baje se dopahar 2 baje tak = ZERO calls
-            if now.hour < 14 or now.hour >= 24:
+            # ─── DEEP SLEEP (12 AM to 2 PM) ───
+            if now.hour < 14:
                 print(f"😴 Deep sleep - {now.strftime('%H:%M')}")
-                time.sleep(3600)  # 1 ghanta
+                time.sleep(3600)
                 continue
 
-            # ─── CHECK MATCH WINDOW ───
+            # ─── NO MATCH WINDOW ───
             if not is_match_time_now():
                 print(f"😴 No match window - {now.strftime('%H:%M')}")
-                time.sleep(1800)  # 30 min
+                time.sleep(1800)
                 continue
 
             # ─── MATCH WINDOW ACTIVE ───
-            # 1 API call - live match check
+            # 1 API call
             match = fetch_live_match()
 
-            # ─── NO LIVE MATCH YET ───
             if not match:
-                # Match scheduled but toss nahi hua
-                print("⏰ Match window - waiting for match to start")
-                time.sleep(600)  # 10 min
+                print("⏰ Waiting for match to start")
+                time.sleep(600)
                 continue
 
             mid = match["match_id"]
 
-            # ─── NEW MATCH DETECTED ───
+            # ─── NEW MATCH ───
             if cache["current_match_id"] != mid:
                 update_cache("current_match_id", mid)
                 update_cache("match_started", True)
@@ -392,18 +369,16 @@ def smart_poll_loop():
                 update_cache("live_scorecard", None)
                 update_cache("live_innings", None)
 
-                print(f"🏏 New match: {match['team1']} vs {match['team2']}")
+                print(f"🏏 New: {match['team1']} vs {match['team2']}")
 
-                # Toss notification
-                toss_text = match.get("toss", "")
-                if toss_text and not cache["toss_notified"]:
+                toss = match.get("toss", "")
+                if toss:
                     broadcast(
                         f"🪙 <b>TOSS UPDATE!</b>\n\n"
                         f"<b>{match['team1']}</b> vs "
                         f"<b>{match['team2']}</b>\n\n"
-                        f"{toss_text}\n\n"
-                        f"Match starting soon! 🏏\n"
-                        f"I will alert you for every thrill! 🔥"
+                        f"{toss}\n\n"
+                        f"Match starting soon! 🏏"
                     )
                     update_cache("toss_notified", True)
                 else:
@@ -414,26 +389,23 @@ def smart_poll_loop():
                         f"Monitoring for THRILLS! 👀🔥"
                     )
 
-            # Toss update (agar pehle nahi mila)
+            # Toss late mila
             elif not cache["toss_notified"] and match.get("toss"):
                 broadcast(
-                    f"🪙 <b>TOSS UPDATE!</b>\n\n"
-                    f"<b>{match['team1']}</b> vs "
-                    f"<b>{match['team2']}</b>\n\n"
+                    f"🪙 <b>TOSS!</b>\n\n"
                     f"{match['toss']}\n\n"
                     f"Match is ON! 🏏"
                 )
                 update_cache("toss_notified", True)
 
-            # ─── SCORECARD FETCH ───
-            # 1 API call
+            # ─── SCORECARD (1 API call) ───
             scard = fetch_scorecard(mid)
 
             if not scard:
                 time.sleep(600)
                 continue
 
-            # ─── MATCH COMPLETE CHECK ───
+            # ─── MATCH COMPLETE ───
             match_status = (scard.get("status", "") or "").lower()
             is_complete = (
                 "won" in match_status or
@@ -443,11 +415,9 @@ def smart_poll_loop():
             )
 
             if is_complete and not cache["result_notified"]:
-                # Thrill score calculate karo
                 thrill = calculate_thrill_score(scard)
                 thrill_bar = "🔥" * thrill + "⬜" * (10 - thrill)
 
-                # Score summary
                 score_lines = []
                 for innings in scard.get("score", []):
                     inning_name = innings.get("inning", "") or ""
@@ -456,20 +426,18 @@ def smart_poll_loop():
                     o = innings.get("o", 0)
                     if inning_name:
                         score_lines.append(
-                            f"  {inning_name}: {r}/{w} ({o} ov)"
-                        )
+                            f"  {inning_name}: {r}/{w} ({o} ov)")
 
                 scores_text = "\n".join(score_lines)
 
-                # Thrill comment
                 if thrill >= 8:
-                    thrill_comment = "🔴 WHAT A MATCH! Don't miss the highlights!"
+                    comment = "🔴 WHAT A MATCH! Must watch highlights!"
                 elif thrill >= 6:
-                    thrill_comment = "🏏 Good contest! Worth watching highlights."
+                    comment = "🏏 Good contest! Worth watching."
                 elif thrill >= 4:
-                    thrill_comment = "😊 Decent game."
+                    comment = "😊 Decent game."
                 else:
-                    thrill_comment = "😴 One-sided affair."
+                    comment = "😴 One-sided affair."
 
                 broadcast(
                     f"🏆 <b>MATCH RESULT</b>\n\n"
@@ -478,7 +446,7 @@ def smart_poll_loop():
                     f"{scores_text}\n\n"
                     f"🔥 <b>THRILL RATING: {thrill}/10</b>\n"
                     f"{thrill_bar}\n\n"
-                    f"{thrill_comment}"
+                    f"{comment}"
                 )
 
                 update_cache("result_notified", True)
@@ -489,8 +457,6 @@ def smart_poll_loop():
                 update_cache("live_innings", None)
 
                 print(f"🏆 Match over! Thrill: {thrill}/10")
-
-                # Match khatam - next match tak sleep
                 time.sleep(3600)
                 continue
 
@@ -500,60 +466,43 @@ def smart_poll_loop():
             if data:
                 alerts = detect_thrills(mid, data)
                 for alert in alerts:
-                    print(f"🎯 Thrill: {alert['type']}")
+                    print(f"🎯 {alert['type']}")
                     broadcast(alert["message"])
 
-                # ─── SMART POLLING SPEED ───
+                # ─── SMART WAIT ───
                 overs = data["overs"]
                 wickets = data["wickets"]
                 innings_id = data["innings_id"]
                 target = data.get("target")
                 req_rate = data.get("req_rate", 0)
 
-                # 2nd innings chase
                 if innings_id >= 2 and target:
                     runs_needed = target - data["runs"]
 
                     if overs >= 17.0 and 0 < runs_needed <= 30:
-                        # Last 3 overs - very close
-                        wait = 120  # 2 min
+                        wait = 120
                         print("🔥 NAIL BITER - 2 min")
-
                     elif overs >= 15.0 and 0 < runs_needed <= 60:
-                        # Last 5 overs - close
-                        wait = 300  # 5 min
-                        print("🔴 THRILLER ZONE - 5 min")
-
+                        wait = 300
+                        print("🔴 THRILLER - 5 min")
                     elif req_rate >= 14.0 and overs >= 10.0:
-                        # Steep chase
-                        wait = 300  # 5 min
+                        wait = 300
                         print("📈 STEEP CHASE - 5 min")
-
                     else:
-                        # Normal chase
-                        wait = 900  # 15 min
+                        wait = 900
                         print("🏏 Normal chase - 15 min")
-
-                # 1st innings
                 else:
                     if wickets >= 5 and overs <= 15:
-                        # Collapse watch
-                        wait = 300  # 5 min
+                        wait = 300
                         print("😱 Collapse watch - 5 min")
-
                     elif overs >= 16.0:
-                        # Death overs
-                        wait = 300  # 5 min
+                        wait = 300
                         print("💥 Death overs - 5 min")
-
                     else:
-                        # Normal batting
-                        wait = 1200  # 20 min
-                        print("😎 Normal batting - 20 min")
-
+                        wait = 1200
+                        print("😎 Normal - 20 min")
             else:
-                # Innings break / toss time
-                wait = 600  # 10 min
+                wait = 600
                 print("⏸️ Break - 10 min")
 
             time.sleep(wait)
@@ -568,27 +517,20 @@ def smart_poll_loop():
 # ─────────────────────────────────────────
 
 def daily_schedule_refresh():
-    """
-    Roz raat 12 baje schedule refresh karo
-    Sirf 2 API calls
-    Playoffs/Finals ke liye
-    """
+    """Roz 12 AM schedule refresh"""
     while True:
         try:
             now = datetime.now()
-
-            # Raat 12 baje refresh
             if now.hour == 0 and now.minute < 30:
                 print("🔄 Daily schedule refresh")
                 update_cache("schedule_fetched", False)
                 update_cache("schedule", [])
                 fetch_schedule()
-                time.sleep(3600)  # 1 ghanta wait
+                time.sleep(3600)
             else:
-                time.sleep(1800)  # 30 min check
-
+                time.sleep(1800)
         except Exception as e:
-            print(f"Schedule refresh error: {e}")
+            print(f"Refresh error: {e}")
             time.sleep(3600)
 
 
@@ -599,13 +541,10 @@ def daily_schedule_refresh():
 if __name__ == "__main__":
     print("🏏 Starting Thrill Alert Bot...")
 
-    # Web server start karo
-    threading.Thread(
-        target=run_server,
-        daemon=True
-    ).start()
+    # Web server
+    threading.Thread(target=run_server, daemon=True).start()
 
-    # Webhook clear karo
+    # Webhook clear
     try:
         req.get(
             f"https://api.telegram.org/bot{TOKEN}"
@@ -619,18 +558,12 @@ if __name__ == "__main__":
     time.sleep(2)
 
     # Smart polling engine
-    threading.Thread(
-        target=smart_poll_loop,
-        daemon=True
-    ).start()
+    threading.Thread(target=smart_poll_loop, daemon=True).start()
     print("✅ Smart Polling Engine started")
 
     # Daily schedule refresh
-    threading.Thread(
-        target=daily_schedule_refresh,
-        daemon=True
-    ).start()
-    print("✅ Daily Schedule Refresh started")
+    threading.Thread(target=daily_schedule_refresh, daemon=True).start()
+    print("✅ Daily Refresh started")
 
     print("✅ Bot polling started!")
     bot.polling(none_stop=True, timeout=30, interval=1)
