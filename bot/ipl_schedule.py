@@ -1,204 +1,106 @@
-# ipl_schedule.py
-# IPL 2026 Schedule - Hardcoded
-# 0 API calls for schedule
-# User clicks pe instant response
+from datetime import date, datetime
+import pytz
 
-from datetime import datetime, timedelta
+IST = pytz.timezone("Asia/Kolkata")
 
-# ─────────────────────────────────────────
-# IPL 2026 COMPLETE SCHEDULE
-# Format: (YYYY, MM, DD, HH, MM_min, "Team1", "Team2", "Venue")
-# Time: IST
-# ─────────────────────────────────────────
-
-IPL_MATCHES = [
-    # --- Already Played (April) ---
-    (2026, 4, 22, 19, 30, "Kolkata Knight Riders", "Royal Challengers Bengaluru", "Eden Gardens, Kolkata"),
-    (2026, 4, 23, 19, 30, "Sunrisers Hyderabad", "Rajasthan Royals", "Rajiv Gandhi Stadium, Hyderabad"),
-    (2026, 4, 24, 19, 30, "Chennai Super Kings", "Mumbai Indians", "MA Chidambaram Stadium, Chennai"),
-    (2026, 4, 25, 19, 30, "Delhi Capitals", "Lucknow Super Giants", "Arun Jaitley Stadium, Delhi"),
-    (2026, 4, 26, 15, 30, "Punjab Kings", "Gujarat Titans", "Mullanpur Stadium, Punjab"),
-    (2026, 4, 26, 19, 30, "Rajasthan Royals", "Kolkata Knight Riders", "Sawai Mansingh Stadium, Jaipur"),
-    (2026, 4, 27, 15, 30, "Mumbai Indians", "Sunrisers Hyderabad", "Wankhede Stadium, Mumbai"),
-    (2026, 4, 27, 19, 30, "Royal Challengers Bengaluru", "Delhi Capitals", "M Chinnaswamy Stadium, Bengaluru"),
-    (2026, 4, 28, 19, 30, "Lucknow Super Giants", "Chennai Super Kings", "Ekana Stadium, Lucknow"),
-    (2026, 4, 29, 19, 30, "Gujarat Titans", "Punjab Kings", "Narendra Modi Stadium, Ahmedabad"),
-    (2026, 4, 30, 19, 30, "Kolkata Knight Riders", "Delhi Capitals", "Eden Gardens, Kolkata"),
-
-    # --- May ---
-    (2026, 5, 1, 19, 30, "Mumbai Indians", "Rajasthan Royals", "Wankhede Stadium, Mumbai"),
-    (2026, 5, 2, 19, 30, "Rajasthan Royals", "Delhi Capitals", "Sawai Mansingh Stadium, Jaipur"),
-    (2026, 5, 3, 15, 30, "Lucknow Super Giants", "Punjab Kings", "Ekana Stadium, Lucknow"),
-    (2026, 5, 3, 19, 30, "Kolkata Knight Riders", "Mumbai Indians", "Eden Gardens, Kolkata"),
-    (2026, 5, 4, 19, 30, "Sunrisers Hyderabad", "Chennai Super Kings", "Rajiv Gandhi Stadium, Hyderabad"),
-    (2026, 5, 5, 19, 30, "Royal Challengers Bengaluru", "Gujarat Titans", "M Chinnaswamy Stadium, Bengaluru"),
-    (2026, 5, 6, 19, 30, "Delhi Capitals", "Lucknow Super Giants", "Arun Jaitley Stadium, Delhi"),
-    (2026, 5, 7, 19, 30, "Mumbai Indians", "Rajasthan Royals", "Wankhede Stadium, Mumbai"),
-    (2026, 5, 8, 19, 30, "Punjab Kings", "Kolkata Knight Riders", "Mullanpur Stadium, Punjab"),
-    (2026, 5, 9, 19, 30, "Chennai Super Kings", "Sunrisers Hyderabad", "MA Chidambaram Stadium, Chennai"),
-    (2026, 5, 10, 15, 30, "Gujarat Titans", "Royal Challengers Bengaluru", "Narendra Modi Stadium, Ahmedabad"),
-    (2026, 5, 10, 19, 30, "Lucknow Super Giants", "Delhi Capitals", "Ekana Stadium, Lucknow"),
-    (2026, 5, 11, 15, 30, "Rajasthan Royals", "Punjab Kings", "Sawai Mansingh Stadium, Jaipur"),
-    (2026, 5, 11, 19, 30, "Mumbai Indians", "Chennai Super Kings", "Wankhede Stadium, Mumbai"),
-    (2026, 5, 12, 19, 30, "Kolkata Knight Riders", "Gujarat Titans", "Eden Gardens, Kolkata"),
-    (2026, 5, 13, 19, 30, "Sunrisers Hyderabad", "Royal Challengers Bengaluru", "Rajiv Gandhi Stadium, Hyderabad"),
-    (2026, 5, 14, 19, 30, "Delhi Capitals", "Mumbai Indians", "Arun Jaitley Stadium, Delhi"),
-    (2026, 5, 15, 19, 30, "Lucknow Super Giants", "Rajasthan Royals", "Ekana Stadium, Lucknow"),
-    (2026, 5, 16, 15, 30, "Punjab Kings", "Sunrisers Hyderabad", "Mullanpur Stadium, Punjab"),
-    (2026, 5, 16, 19, 30, "Chennai Super Kings", "Kolkata Knight Riders", "MA Chidambaram Stadium, Chennai"),
-    (2026, 5, 17, 15, 30, "Gujarat Titans", "Delhi Capitals", "Narendra Modi Stadium, Ahmedabad"),
-    (2026, 5, 17, 19, 30, "Royal Challengers Bengaluru", "Mumbai Indians", "M Chinnaswamy Stadium, Bengaluru"),
-    (2026, 5, 18, 19, 30, "Rajasthan Royals", "Lucknow Super Giants", "Sawai Mansingh Stadium, Jaipur"),
-    (2026, 5, 19, 19, 30, "Kolkata Knight Riders", "Punjab Kings", "Eden Gardens, Kolkata"),
-    (2026, 5, 20, 19, 30, "Sunrisers Hyderabad", "Gujarat Titans", "Rajiv Gandhi Stadium, Hyderabad"),
-
-    # --- Playoffs (Approximate dates) ---
-    (2026, 5, 22, 19, 30, "Qualifier 1", "TBD", "TBD"),
-    (2026, 5, 23, 19, 30, "Eliminator", "TBD", "TBD"),
-    (2026, 5, 25, 19, 30, "Qualifier 2", "TBD", "TBD"),
-    (2026, 5, 27, 19, 30, "FINAL", "TBD", "TBD"),
+# IPL 2026 Schedule (Hardcoded - No API calls)
+# Format: (YYYY, MM, DD, HH_IST, MM_IST, "Team1", "Team2", "Venue")
+IPL_SCHEDULE = [
+    # May 12
+    (2026, 5, 12, 19, 30, "Punjab Kings", "Delhi Capitals", "HPCA Stadium, Dharamsala"),
+    # May 13
+    (2026, 5, 13, 19, 30, "Royal Challengers Bengaluru", "Mumbai Indians", "Shaheed Veer Narayan Singh Stadium, Raipur"),
+    # May 14
+    (2026, 5, 14, 19, 30, "Punjab Kings", "Chennai Super Kings", "HPCA Stadium, Dharamsala"),
+    # May 15
+    (2026, 5, 15, 19, 30, "Lucknow Super Giants", "Gujarat Titans", "BRSABV Ekana Cricket Stadium, Lucknow"),
+    # May 16
+    (2026, 5, 16, 19, 30, "Kolkata Knight Riders", "Royal Challengers Bengaluru", "Eden Gardens, Kolkata"),
+    # May 17 - Double Header
+    (2026, 5, 17, 15, 30, "Punjab Kings", "Rajasthan Royals", "HPCA Stadium, Dharamsala"),
+    (2026, 5, 17, 19, 30, "Delhi Capitals", "Sunrisers Hyderabad", "Arun Jaitley Stadium, Delhi"),
+    # May 18
+    (2026, 5, 18, 19, 30, "Chennai Super Kings", "Lucknow Super Giants", "MA Chidambaram Stadium, Chennai"),
+    # May 19
+    (2026, 5, 19, 19, 30, "Rajasthan Royals", "Mumbai Indians", "Sawai Mansingh Stadium, Jaipur"),
+    # May 20
+    (2026, 5, 20, 19, 30, "Kolkata Knight Riders", "Gujarat Titans", "Eden Gardens, Kolkata"),
+    # May 21 - Double Header
+    (2026, 5, 21, 15, 30, "Chennai Super Kings", "Gujarat Titans", "Narendra Modi Stadium, Ahmedabad"),
+    (2026, 5, 21, 19, 30, "Sunrisers Hyderabad", "Royal Challengers Bengaluru", "Rajiv Gandhi International Stadium, Hyderabad"),
+    # May 22
+    (2026, 5, 22, 19, 30, "Lucknow Super Giants", "Punjab Kings", "BRSABV Ekana Cricket Stadium, Lucknow"),
+    # May 23
+    (2026, 5, 23, 19, 30, "Mumbai Indians", "Rajasthan Royals", "Wankhede Stadium, Mumbai"),
+    # May 24 - Double Header
+    (2026, 5, 24, 15, 30, "Kolkata Knight Riders", "Delhi Capitals", "Eden Gardens, Kolkata"),
+    (2026, 5, 24, 19, 30, "Gujarat Titans", "Rajasthan Royals", "Narendra Modi Stadium, Ahmedabad"),
+    # PLAYOFFS
+    (2026, 5, 26, 19, 30, "Qualifier 1", "Teams TBD", "HPCA Stadium, Dharamsala"),
+    (2026, 5, 27, 19, 30, "Eliminator", "Teams TBD", "New International Cricket Stadium, New Chandigarh"),
+    (2026, 5, 29, 19, 30, "Qualifier 2", "Teams TBD", "New International Cricket Stadium, New Chandigarh"),
+    (2026, 5, 31, 19, 30, "Final", "Teams TBD", "Narendra Modi Stadium, Ahmedabad"),
 ]
 
 
-# ─────────────────────────────────────────
-# CACHE (Memory mein live data save hoga)
-# ─────────────────────────────────────────
-
-CACHE = {
-    "live_match": None,
-    "live_scorecard": None,
-    "live_innings": None,
-    "last_updated": None,
-    "toss_notified": False,
-    "result_notified": False,
-    "current_match_id": None,
-}
-
-
-def get_cache():
-    return CACHE
-
-
-def update_cache(key, value):
-    CACHE[key] = value
-
-
-# ─────────────────────────────────────────
-# SCHEDULE HELPERS (0 API calls)
-# ─────────────────────────────────────────
-
-def get_todays_matches():
-    """Aaj ke matches - schedule se (0 API calls)"""
-    now = datetime.now()
-    today = []
-
-    for match in IPL_MATCHES:
-        y, mo, d, h, mi, t1, t2, venue = match
-        if y == now.year and mo == now.month and d == now.day:
-            today.append({
-                "year": y, "month": mo, "day": d,
-                "hour": h, "minute": mi,
-                "team1": t1, "team2": t2,
-                "venue": venue
-            })
-
-    return today
+def get_today_matches():
+    today = datetime.now(IST).date()
+    return [m for m in IPL_SCHEDULE if date(m[0], m[1], m[2]) == today]
 
 
 def get_upcoming_matches(days=3):
-    """Agle kuch dino ke matches"""
-    now = datetime.now()
+    today = datetime.now(IST).date()
     upcoming = []
-
-    for i in range(1, days + 1):
-        future = now + timedelta(days=i)
-        for match in IPL_MATCHES:
-            y, mo, d, h, mi, t1, t2, venue = match
-            if (y == future.year and
-                    mo == future.month and
-                    d == future.day):
-                upcoming.append({
-                    "year": y, "month": mo, "day": d,
-                    "hour": h, "minute": mi,
-                    "team1": t1, "team2": t2,
-                    "venue": venue
-                })
-
+    for m in IPL_SCHEDULE:
+        match_date = date(m[0], m[1], m[2])
+        delta = (match_date - today).days
+        if 1 <= delta <= days:
+            upcoming.append(m)
     return upcoming
 
 
-def is_match_time_now():
-    """
-    Match start se 20 min pehle se
-    Match end tak (4 hours after)
-    True return karo
-    """
-    now = datetime.now()
-    current_mins = now.hour * 60 + now.minute
-    today = get_todays_matches()
-
-    for match in today:
-        start = match["hour"] * 60 + match["minute"]
-        # Window: 20 min before to 4.5 hours after
-        if (start - 20) <= current_mins <= (start + 270):
-            return True
-
-    return False
+def is_match_window_open():
+    now = datetime.now(IST)
+    hour = now.hour
+    return 14 <= hour <= 23 and len(get_today_matches()) > 0
 
 
-def format_time(hour, minute):
-    """HH:MM AM/PM format"""
-    if hour >= 12:
-        ampm = "PM"
-        h = hour - 12 if hour > 12 else 12
-    else:
-        ampm = "AM"
-        h = hour if hour > 0 else 12
-    return f"{h:02d}:{minute:02d} {ampm}"
+def format_time_12h(hh, mm):
+    period = "AM" if hh < 12 else "PM"
+    hour = hh % 12 if hh % 12 != 0 else 12
+    return f"{hour}:{mm:02d} {period}"
 
 
 def format_schedule_message():
-    """
-    Schedule message banao
-    Date: DD/MM/YYYY
-    Time: HH:MM AM/PM
-    0 API calls
-    """
-    now = datetime.now()
-    date_str = now.strftime("%d/%m/%Y")
-    day_name = now.strftime("%A")
-
-    lines = []
-    lines.append(f"📅 <b>{date_str} ({day_name})</b>")
-    lines.append("🏆 <b>Indian Premier League 2026</b>\n")
-
-    today = get_todays_matches()
-
-    if today:
-        lines.append("<b>Today's Matches:</b>\n")
-        for i, m in enumerate(today, 1):
-            time_str = format_time(m["hour"], m["minute"])
-            lines.append(f"🏏 <b>Match {i}</b>")
-            lines.append(
-                f"   <b>{m['team1']}</b> vs <b>{m['team2']}</b>")
-            lines.append(f"   ⏰ {time_str} IST")
-            lines.append(f"   📍 {m['venue']}")
+    now = datetime.now(IST)
+    today = now.date()
+    today_str = today.strftime("%d/%m/%Y (%A)")
+    
+    lines = [f"📅 *IPL 2026 Schedule*", f"Today: {today_str}", ""]
+    
+    today_matches = get_today_matches()
+    if today_matches:
+        lines.append("*Today's Matches:*")
+        for m in today_matches:
+            time_str = format_time_12h(m[3], m[4])
+            lines.append(f"🏏 {m[5]} vs {m[6]}")
+            lines.append(f"   ⏰ {time_str} IST | 📍 {m[7]}")
             lines.append("")
     else:
-        lines.append("😴 <b>No IPL match today</b>\n")
-
-    upcoming = get_upcoming_matches(days=3)
+        lines.append("*Today:* No match 😴\n")
+    
+    upcoming = get_upcoming_matches(3)
     if upcoming:
-        lines.append("🗓 <b>Upcoming Matches:</b>\n")
-        seen_days = []
-        for m in upcoming[:5]:
-            day_key = f"{m['day']}/{m['month']}"
-            date_display = f"{m['day']:02d}/{m['month']:02d}/{m['year']}"
-            time_str = format_time(m["hour"], m["minute"])
-
-            lines.append(f"• <b>{date_display}</b>")
-            lines.append(
-                f"  {m['team1']} vs {m['team2']}")
-            lines.append(f"  ⏰ {time_str} IST\n")
-
+        lines.append("*Upcoming (Next 3 Days):*")
+        prev_date = None
+        for m in upcoming:
+            match_date = date(m[0], m[1], m[2])
+            if match_date != prev_date:
+                date_str = match_date.strftime("%d %b (%A)")
+                lines.append(f"\n📆 *{date_str}*")
+                prev_date = match_date
+            time_str = format_time_12h(m[3], m[4])
+            lines.append(f"  🏏 {m[5]} vs {m[6]}")
+            lines.append(f"     ⏰ {time_str} IST | 📍 {m[7]}")
+    
     return "\n".join(lines)
