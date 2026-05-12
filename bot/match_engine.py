@@ -1,440 +1,425 @@
-# match_engine.py
-# Live match data fetch + thrill detection
-# API calls SIRF background polling se
-# User clicks pe 0 API calls
-
 import os
+import time
 import requests
+import threading
+import re
 from datetime import datetime
-from ipl_schedule import get_cache, update_cache
+import pytz
 
-CRICAPI_KEY = os.environ.get("CRICAPI_KEY")
+from ipl_schedule import is_match_window_open
+
+CRICAPI_KEY = os.environ.get("CRICAPI_KEY", "")
 BASE_URL = "https://api.cricapi.com/v1"
+IST = pytz.timezone("Asia/Kolkata")
+
+# Cache dictionary
+cache = {
+    "match_id": None,
+    "t1": "",
+    "t2": "",
+    "t1s": "",
+    "t2s": "",
+    "status": "",
+    "tpiw": "",
+    "score": [],
+    "match_active": False,
+    "last_updated": None,
+}
+
+# Notification state (track what we've already sent)
+notif_state = {
+    "match_started": False,
+    "toss_sent": False,
+    "wicket_collapse_1st": False,
+    "trouble_1st": False,
+    "thriller_sent": False,
+    "nail_biter_sent": False,
+    "tough_chase_sent": False,
+    "result_sent": False,
+    "last_wickets": 0,
+}
+
+# Bot reference
+_bot = None
+_alert_users = None
 
 
-# ─────────────────────────────────────────
-# API CALLS (Background polling se only)
-# ─────────────────────────────────────────
+def set_bot(bot, alert_users):
+    global _bot, _alert_users
+    _bot = bot
+    _alert_users = alert_users
 
-def fetch_live_match():
-    """
-    1 API call - live IPL match check karo
-    Result cache mein save karo
-    SIRF background polling se call hogi
-    """
+
+def send_alert(message):
+    """Send notification to all subscribed users"""
+    if not _bot or not _alert_users:
+        return
+    for uid in list(_alert_users):
+        try:
+            _bot.send_message(uid, message, parse_mode="Markdown")
+        except:
+            pass
+
+
+# ============ API CALLS ============
+
+def fetch_live_scores():
+    """Call /cricScore to get all live matches"""
     try:
-        url = f"{BASE_URL}/cricScore"
-        params = {"apikey": CRICAPI_KEY}
-        response = requests.get(url, params=params, timeout=15)
-
-        now = datetime.now().strftime("%I:%M %p")
-        update_cache("last_updated", now)
-
-        if response.status_code != 200:
-            print(f"API error: {response.status_code}")
-            return None
-
-        data = response.json()
-
-        # API limit check
-        info = data.get("info", {})
-        hits = info.get("hitsToday", 0)
-        limit = info.get("hitsLimit", 100)
-        print(f"API: {hits}/{limit} hits used")
-
-        if data.get("status") != "success":
-            print(f"API status: {data.get('status')}")
-            return None
-
-        matches = data.get("data", [])
-
-        for match in matches:
-            # Series check
-            series = (
-                match.get("series", "") or
-                match.get("seriesName", "") or ""
-            ).upper()
-
-            if "IPL" not in series and "INDIAN PREMIER" not in series:
-                continue
-
-            # Match state
-            ms = (match.get("ms", "") or "").lower()
-            is_active = (
-                "live" in ms or
-                "progress" in ms or
-                "innings" in ms or
-                "break" in ms or
-                "toss" in ms
-            )
-
-            if not is_active:
-                continue
-
-            # Team names
-            t1 = _get_team_name(match, 0)
-            t2 = _get_team_name(match, 1)
-
-            match_id = str(match.get("id", "") or "")
-            status = match.get("status", "") or "Live"
-            toss = match.get("tpiw", "") or match.get("toss", "") or ""
-            t1s = match.get("t1s", "") or ""
-            t2s = match.get("t2s", "") or ""
-
-            live_data = {
-                "match_id": match_id,
-                "team1": t1,
-                "team2": t2,
-                "status": status,
-                "state": ms,
-                "toss": toss,
-                "t1_score": t1s,
-                "t2_score": t2s,
-            }
-
-            update_cache("live_match", live_data)
-            print(f"✅ IPL Live: {t1} vs {t2} | {ms}")
-            return live_data
-
-        # Koi live match nahi
-        update_cache("live_match", None)
-        print("No live IPL match")
-        return None
-
+        r = requests.get(
+            f"{BASE_URL}/cricScore",
+            params={"apikey": CRICAPI_KEY},
+            timeout=10
+        )
+        data = r.json()
+        if data.get("status") == "success":
+            return data.get("data", [])
     except Exception as e:
-        print(f"fetch_live_match error: {e}")
-        return None
+        print(f"[API Error] cricScore: {e}")
+    return []
 
 
-def _get_team_name(match, index):
-    """Team name extract karo - multiple fields try karo"""
-    # Method 1: t1/t2
-    if index == 0:
-        t = match.get("t1", "") or ""
-    else:
-        t = match.get("t2", "") or ""
-
-    if t:
-        return t
-
-    # Method 2: teamInfo array
-    team_info = match.get("teamInfo", [])
-    if team_info and len(team_info) > index:
-        t = (team_info[index].get("name", "") or
-             team_info[index].get("shortname", "") or "")
-        if t:
-            return t
-
-    # Method 3: name field
-    name = match.get("name", "") or match.get("matchName", "") or ""
-    if " vs " in name:
-        parts = name.split(" vs ")
-        if index < len(parts):
-            return parts[index].strip()
-
-    return f"Team {index + 1}"
-
-
-def fetch_scorecard(match_id):
-    """
-    1 API call - match ka scorecard lao
-    Cache mein save karo
-    SIRF background polling se
-    """
+def fetch_match_info(match_id):
+    """Call /match_info for detailed score data"""
     try:
-        url = f"{BASE_URL}/match_info"
-        params = {"apikey": CRICAPI_KEY, "id": match_id}
-        response = requests.get(url, params=params, timeout=15)
-
-        now = datetime.now().strftime("%I:%M %p")
-        update_cache("last_updated", now)
-
-        if response.status_code != 200:
-            print(f"Scorecard error: {response.status_code}")
-            return None
-
-        data = response.json()
-        if data.get("status") != "success":
-            return None
-
-        match_data = data.get("data", None)
-        update_cache("live_scorecard", match_data)
-        return match_data
-
+        r = requests.get(
+            f"{BASE_URL}/match_info",
+            params={"apikey": CRICAPI_KEY, "id": match_id},
+            timeout=10
+        )
+        data = r.json()
+        if data.get("status") == "success":
+            return data.get("data", {})
     except Exception as e:
-        print(f"fetch_scorecard error: {e}")
-        return None
+        print(f"[API Error] match_info: {e}")
+    return {}
 
 
-# ─────────────────────────────────────────
-# CACHE GETTERS (0 API calls)
-# ─────────────────────────────────────────
-
-def get_live_ipl_match():
-    """Cache se live match (0 API calls)"""
-    return get_cache()["live_match"]
-
-
-def get_match_scorecard(match_id):
-    """Cache se scorecard (0 API calls)"""
-    return get_cache()["live_scorecard"]
+def find_ipl_match(matches_list):
+    """Find active IPL match from list"""
+    for m in matches_list:
+        series = m.get("series", "")
+        ms = m.get("ms", "")
+        if "Indian Premier League" in series:
+            if ms in ["live", "in progress", "innings break", "toss"]:
+                return m
+    return None
 
 
-# ─────────────────────────────────────────
-# INNINGS PARSING (0 API calls)
-# ─────────────────────────────────────────
+# ============ SCORE PARSING ============
 
-def parse_current_innings(match_data):
-    """Cached match data se innings info nikalo"""
-    try:
-        if not match_data:
-            return None
-
-        score_list = match_data.get("score", [])
-        if not score_list:
-            return None
-
-        current = score_list[-1]
-        innings_id = len(score_list)
-
-        runs = int(current.get("r", 0) or 0)
-        wickets = int(current.get("w", 0) or 0)
-        overs = float(current.get("o", 0.0) or 0.0)
-
-        # Target
-        target = None
-        if innings_id >= 2:
-            first = score_list[0]
-            target = int(first.get("r", 0) or 0) + 1
-
-        # Run rate
-        run_rate = round(runs / overs, 1) if overs > 0 else 0.0
-
-        # Required run rate
-        req_rate = 0.0
-        if target and innings_id >= 2 and overs < 20:
-            balls_left = max(1, int((20 - overs) * 6))
-            runs_needed = target - runs
-            overs_left = balls_left / 6
-            if overs_left > 0:
-                req_rate = round(runs_needed / overs_left, 1)
-
-        innings_data = {
-            "innings_id": innings_id,
-            "runs": runs,
-            "wickets": wickets,
-            "overs": overs,
-            "target": target,
-            "run_rate": run_rate,
-            "req_rate": req_rate,
-        }
-
-        update_cache("live_innings", innings_data)
-        return innings_data
-
-    except Exception as e:
-        print(f"parse error: {e}")
-        return None
+def parse_score_string(score_str):
+    """Parse '123/4 (15.2 Ov)' format"""
+    if not score_str:
+        return (0, 0, 0.0)
+    match = re.match(r'(\d+)/(\d+)\s*\(([0-9.]+)\s*Ov\)', str(score_str).strip())
+    if match:
+        return (int(match.group(1)), int(match.group(2)), float(match.group(3)))
+    return (0, 0, 0.0)
 
 
-# ─────────────────────────────────────────
-# THRILL DETECTION
-# IPL-specific calibration
-# ─────────────────────────────────────────
+def get_innings_stats(score_list):
+    """Extract stats from score[] array. Returns (innings_num, runs, wickets, overs, target)"""
+    if not score_list:
+        return (1, 0, 0, 0.0, 0)
+    
+    if len(score_list) == 1:
+        s = score_list[0]
+        return (1, s.get("r", 0), s.get("w", 0), s.get("o", 0.0), 0)
+    
+    # 2nd innings
+    target = score_list[0].get("r", 0) + 1
+    s2 = score_list[1]
+    return (2, s2.get("r", 0), s2.get("w", 0), s2.get("o", 0.0), target)
 
-match_trackers = {}
+
+def calc_required_rate(runs_needed, overs):
+    """Calculate required run rate for 2nd innings"""
+    overs_left = max(0, 20.0 - overs)
+    if overs_left <= 0:
+        return 99.9
+    return round((runs_needed / overs_left) * 1, 2)
 
 
-def detect_thrills(match_id, data):
-    """
-    IPL thrill moments detect karo.
+# ============ NOTIFICATIONS ============
 
-    IPL averages:
-    - 1st innings avg: 170-180
-    - Normal RR: 8.5-9.0
-    - Death overs RR: 10-14
-    - Powerplay RR: 8-10
-
-    Triggers:
-    - 2+ wickets since last check = collapse
-    - 6+ wickets, below par = deep trouble
-    - Close chase last 5 overs
-    - Close chase last 3 overs
-    - Required rate 14+ (difficult)
-    """
-    alerts = []
-    if not data:
-        return alerts
-
-    mid = str(match_id)
-
-    # First check - initialize
-    if mid not in match_trackers:
-        match_trackers[mid] = {
-            "innings_id": data["innings_id"],
-            "prev_wickets": data["wickets"],
-            "prev_runs": data["runs"],
-            "prev_overs": data["overs"],
-            "collapse_alerted": False,
-            "thriller_alerted": False,
-            "super_thriller_alerted": False,
-            "steep_alerted": False,
-        }
-        return alerts
-
-    tr = match_trackers[mid]
-
-    # Innings change - reset
-    if tr["innings_id"] != data["innings_id"]:
-        match_trackers[mid] = {
-            "innings_id": data["innings_id"],
-            "prev_wickets": data["wickets"],
-            "prev_runs": data["runs"],
-            "prev_overs": data["overs"],
-            "collapse_alerted": False,
-            "thriller_alerted": False,
-            "super_thriller_alerted": False,
-            "steep_alerted": False,
-        }
-        return alerts
-
-    runs = data["runs"]
-    wickets = data["wickets"]
-    overs = data["overs"]
-    target = data["target"]
-    run_rate = data["run_rate"]
-    req_rate = data["req_rate"]
-
-    wickets_diff = wickets - tr["prev_wickets"]
-
-    # ─── WICKET ALERTS ───
-
-    # 2+ wickets since last check
-    if wickets_diff >= 2:
-        alerts.append({
-            "type": "collapse",
-            "message": (
-                f"😱 <b>WICKETS FALLING!</b>\n\n"
-                f"{wickets_diff} wickets in quick succession!\n"
-                f"Score: {runs}/{wickets} ({overs} ov)\n\n"
-                f"Match is turning! 🔥"
-            )
-        })
-
-    # 6+ wickets and below par score
-    elif wickets >= 6 and not tr["collapse_alerted"]:
-        expected = overs * 8.5
-        if runs < expected * 0.75:
-            alerts.append({
-                "type": "collapse",
-                "message": (
-                    f"💥 <b>BATTING COLLAPSE!</b>\n\n"
-                    f"Score: {runs}/{wickets} ({overs} ov)\n"
-                    f"Run Rate: {run_rate}\n"
-                    f"Well below par! 📉"
-                )
-            })
-            tr["collapse_alerted"] = True
-
-    if wickets > tr["prev_wickets"]:
-        tr["prev_wickets"] = wickets
-
-    # ─── CHASE ALERTS (2nd innings) ───
-
-    if target and data["innings_id"] >= 2:
+def check_and_send_notifications():
+    """Check all notification conditions"""
+    global notif_state
+    
+    t1 = cache.get("t1", "Team1")
+    t2 = cache.get("t2", "Team2")
+    t1s = cache.get("t1s", "")
+    t2s = cache.get("t2s", "")
+    status = cache.get("status", "")
+    tpiw = cache.get("tpiw", "")
+    score_list = cache.get("score", [])
+    
+    # 1. MATCH STARTED
+    if cache["match_active"] and not notif_state["match_started"]:
+        notif_state["match_started"] = True
+        msg = f"🏏 *Match Starting!*\n{t1} vs {t2}\n_Monitoring started! 🚨_"
+        send_alert(msg)
+    
+    # 2. TOSS UPDATE
+    if tpiw and not notif_state["toss_sent"]:
+        notif_state["toss_sent"] = True
+        msg = f"🪙 *Toss Update*\n{tpiw}\n_Match starts soon!_"
+        send_alert(msg)
+    
+    if not score_list:
+        return
+    
+    innings_num, runs, wickets, overs, target = get_innings_stats(score_list)
+    
+    # 3. WICKET COLLAPSE
+    if wickets - notif_state["last_wickets"] >= 2:
+        msg = f"💥 *Wicket Collapse!*\n{t1} vs {t2}\n{wickets - notif_state['last_wickets']} wickets fell!\n{t1s if innings_num == 1 else t2s}"
+        send_alert(msg)
+    
+    notif_state["last_wickets"] = wickets
+    
+    # 4. TEAM IN TROUBLE (1st innings only)
+    if innings_num == 1 and not notif_state["trouble_1st"]:
+        if overs >= 5 and wickets >= 6:
+            ipl_avg = overs * 8.5 * 0.75
+            if runs < ipl_avg:
+                notif_state["trouble_1st"] = True
+                msg = f"😬 *Team in Trouble!*\n{t1}\n{runs}/{wickets} in {overs} overs\n_Well below IPL average_"
+                send_alert(msg)
+    
+    # 2nd innings checks
+    if innings_num == 2 and target > 0:
         runs_needed = target - runs
-        balls_left = max(1, int((20 - overs) * 6))
-
-        # Last 5 overs + close (<=60 needed)
-        if (overs >= 15.0 and
-                0 < runs_needed <= 60 and
-                not tr["thriller_alerted"]):
-            alerts.append({
-                "type": "thriller",
-                "message": (
-                    f"🔴 <b>THRILLER ALERT!</b>\n\n"
-                    f"Need {runs_needed} off {balls_left} balls!\n"
-                    f"Score: {runs}/{wickets} ({overs} ov)\n"
-                    f"Required Rate: {req_rate}\n\n"
-                    f"🏏 Game ON!"
-                )
-            })
-            tr["thriller_alerted"] = True
-
-        # Last 3 overs + very close (<=30 needed)
-        if (overs >= 17.0 and
-                0 < runs_needed <= 30 and
-                not tr["super_thriller_alerted"]):
-            alerts.append({
-                "type": "super_thriller",
-                "message": (
-                    f"🔥🔥 <b>NAIL BITER!</b>\n\n"
-                    f"Need {runs_needed} off {balls_left} balls!\n"
-                    f"Score: {runs}/{wickets} ({overs} ov)\n"
-                    f"Required Rate: {req_rate}\n\n"
-                    f"EVERY BALL COUNTS! 🏏"
-                )
-            })
-            tr["super_thriller_alerted"] = True
-
-        # Required rate 14+ (very tough chase)
-        if (req_rate >= 14.0 and
-                overs >= 10.0 and
-                not tr["steep_alerted"]):
-            alerts.append({
-                "type": "steep",
-                "message": (
-                    f"📈 <b>TOUGH CHASE!</b>\n\n"
-                    f"Required Rate: {req_rate}\n"
-                    f"Need {runs_needed} off {balls_left} balls\n"
-                    f"Score: {runs}/{wickets} ({overs} ov)\n\n"
-                    f"Can they do it? 🤔"
-                )
-            })
-            tr["steep_alerted"] = True
-
-    # Update tracker
-    tr["prev_runs"] = runs
-    tr["prev_overs"] = overs
-
-    return alerts
+        rr = calc_required_rate(runs_needed, overs)
+        
+        # 5. THRILLER
+        if not notif_state["thriller_sent"] and overs >= 15.0 and runs_needed <= 60:
+            notif_state["thriller_sent"] = True
+            msg = f"🔥 *Thriller!*\n{t1} vs {t2}\nNeed {runs_needed} in {20-int(overs)} overs!\nRRR: {rr}"
+            send_alert(msg)
+        
+        # 6. NAIL BITER
+        if not notif_state["nail_biter_sent"] and overs >= 17.0 and runs_needed <= 30:
+            notif_state["nail_biter_sent"] = True
+            msg = f"😱 *NAIL BITER!*\n{t1} vs {t2}\nNeed {runs_needed} runs!\nRRR: {rr}\n_EDGE OF SEAT STUFF!_"
+            send_alert(msg)
+        
+        # 7. TOUGH CHASE
+        if not notif_state["tough_chase_sent"] and overs >= 10.0 and rr >= 14.0:
+            notif_state["tough_chase_sent"] = True
+            msg = f"🏔️ *Tough Chase!*\n{t1} vs {t2}\nNeed {runs_needed}, RRR: {rr}"
+            send_alert(msg)
+    
+    # 8. MATCH RESULT
+    if not notif_state["result_sent"]:
+        status_lower = status.lower()
+        if any(word in status_lower for word in ["won", "tie", "no result"]):
+            notif_state["result_sent"] = True
+            thrill = calc_thrill_rating(score_list, status_lower)
+            stars = "⭐" * thrill
+            
+            score_text = ""
+            for s in score_list:
+                r, w, o = s.get("r", 0), s.get("w", 0), s.get("o", 0.0)
+                score_text += f"\n  {s.get('inning', 'Innings')}: {r}/{w} ({o} ov)"
+            
+            msg = f"🏆 *Match Result*\n{t1} vs {t2}\n{status}{score_text}\n\n*Thrill Rating: {thrill}/10*\n{stars}"
+            send_alert(msg)
 
 
-# ─────────────────────────────────────────
-# DEBUG (Cache status - 0 API calls)
-# ─────────────────────────────────────────
+def calc_thrill_rating(score_list, status_lower):
+    """Calculate thrill rating 1-10"""
+    rating = 3
+    
+    if "super over" in status_lower or "tie" in status_lower:
+        return 10
+    
+    if "1 wicket" in status_lower or "1 run" in status_lower:
+        rating += 4
+    elif "2 wicket" in status_lower or "2 run" in status_lower:
+        rating += 3
+    elif "3 wicket" in status_lower or "3 run" in status_lower:
+        rating += 2
+    
+    if score_list and score_list[0].get("r", 0) >= 220:
+        rating += 2
+    elif score_list and score_list[0].get("r", 0) >= 190:
+        rating += 1
+    
+    if score_list and len(score_list) >= 2 and score_list[1].get("o", 0.0) >= 19.0:
+        rating += 1
+    
+    return min(10, rating)
 
-def debug_ipl_status():
-    """Cache ka status dikhao - 0 API calls"""
-    cache = get_cache()
-    lines = []
 
-    lines.append("=== CACHE STATUS ===")
+# ============ SMART POLLING ============
 
-    live = cache.get("live_match")
-    if live:
-        lines.append(
-            f"Live: {live['team1']} vs {live['team2']}\n"
-            f"State: {live['state']}\n"
-            f"Status: {live['status']}\n"
-            f"Score 1: {live.get('t1_score', '-')}\n"
-            f"Score 2: {live.get('t2_score', '-')}"
-        )
+def get_poll_interval():
+    """Return sleep time in seconds based on match state"""
+    if not cache["match_active"]:
+        return 900
+    
+    score_list = cache.get("score", [])
+    if not score_list:
+        return 900
+    
+    innings_num, runs, wickets, overs, target = get_innings_stats(score_list)
+    
+    if innings_num == 1:
+        if overs >= 16.0:
+            return 480  # 8 min - death overs
+        return 1500  # 25 min - normal
     else:
-        lines.append("Live: No match in cache")
+        if target > 0:
+            runs_needed = target - runs
+            if overs >= 17.0 and runs_needed <= 30:
+                return 120  # 2 min - nail biter
+            elif overs >= 15.0 and runs_needed <= 60:
+                return 300  # 5 min - thriller
+        return 900  # 15 min - normal 2nd
 
-    innings = cache.get("live_innings")
-    if innings:
-        lines.append(
-            f"\nInnings: {innings['innings_id']}\n"
-            f"Score: {innings['runs']}/{innings['wickets']}\n"
-            f"Overs: {innings['overs']}\n"
-            f"RR: {innings['run_rate']}\n"
-            f"Req RR: {innings['req_rate']}"
-        )
 
-    lines.append(f"\nLast API call: {cache.get('last_updated', 'Never')}")
-    lines.append(f"Toss notified: {cache.get('toss_notified', False)}")
-    lines.append(f"Result notified: {cache.get('result_notified', False)}")
+def reset_notif_state():
+    """Reset when new match starts"""
+    global notif_state
+    notif_state = {
+        "match_started": False,
+        "toss_sent": False,
+        "wicket_collapse_1st": False,
+        "trouble_1st": False,
+        "thriller_sent": False,
+        "nail_biter_sent": False,
+        "tough_chase_sent": False,
+        "result_sent": False,
+        "last_wickets": 0,
+    }
 
+
+# ============ POLL LOOP ============
+
+def poll_loop():
+    """Main background polling thread"""
+    print("[Poll] Started")
+    last_match_id = None
+    
+    while True:
+        try:
+            # Sleep during non-match hours
+            if not is_match_window_open():
+                time.sleep(600)
+                continue
+            
+            # Fetch live matches
+            live_matches = fetch_live_scores()
+            ipl_match = find_ipl_match(live_matches)
+            
+            if ipl_match:
+                match_id = ipl_match.get("id")
+                
+                # New match detected
+                if match_id != last_match_id:
+                    reset_notif_state()
+                    last_match_id = match_id
+                
+                # Update cache from cricScore
+                cache["match_id"] = match_id
+                cache["t1"] = ipl_match.get("t1", "")
+                cache["t2"] = ipl_match.get("t2", "")
+                cache["t1s"] = ipl_match.get("t1s", "")
+                cache["t2s"] = ipl_match.get("t2s", "")
+                cache["status"] = ipl_match.get("status", "")
+                cache["tpiw"] = ipl_match.get("tpiw", "")
+                cache["match_active"] = True
+                cache["last_updated"] = datetime.now(IST).strftime("%H:%M:%S IST")
+                
+                # Fetch detailed info for score[]
+                match_info = fetch_match_info(match_id)
+                if match_info:
+                    cache["score"] = match_info.get("score", [])
+                    if match_info.get("status"):
+                        cache["status"] = match_info.get("status")
+                
+                # Check notifications
+                check_and_send_notifications()
+                
+                # Check if match over
+                if any(word in cache["status"].lower() for word in ["won", "tie", "no result"]):
+                    cache["match_active"] = False
+                    time.sleep(3600)
+                    continue
+            else:
+                cache["match_active"] = False
+            
+            # Sleep with smart interval
+            interval = get_poll_interval()
+            time.sleep(interval)
+            
+        except Exception as e:
+            print(f"[Poll Error] {e}")
+            time.sleep(300)
+
+
+def start_poll_thread():
+    """Start polling in background"""
+    t = threading.Thread(target=poll_loop, daemon=True)
+    t.start()
+
+
+# ============ CACHE DISPLAY ============
+
+def get_live_match_message():
+    """Format live match info from cache"""
+    if not cache["match_active"] or not cache["t1"]:
+        return "🏏 No IPL match currently live.\n\n_Check back during match time!_"
+    
+    t1, t2 = cache.get("t1", "?"), cache.get("t2", "?")
+    t1s, t2s = cache.get("t1s", "-"), cache.get("t2s", "-")
+    status = cache.get("status", "-")
+    tpiw = cache.get("tpiw", "")
+    score_list = cache.get("score", [])
+    last_upd = cache.get("last_updated", "N/A")
+    
+    lines = [f"🏏 *{t1} vs {t2}*"]
+    
+    if tpiw:
+        lines.append(f"🪙 {tpiw}")
+    
+    lines.append("")
+    
+    if score_list:
+        for s in score_list:
+            r, w, o = s.get("r", 0), s.get("w", 0), s.get("o", 0.0)
+            if o > 0:
+                crr = round(r / o, 2)
+                lines.append(f"📊 {s.get('inning', 'Innings')}: *{r}/{w}* ({o} ov) | CRR: {crr}")
+            else:
+                lines.append(f"📊 {s.get('inning', 'Innings')}: *{r}/{w}* ({o} ov)")
+        
+        innings_num, runs, wickets, overs, target = get_innings_stats(score_list)
+        if innings_num == 2 and target > 0:
+            needed = target - runs
+            rr = calc_required_rate(needed, overs)
+            lines.append(f"🎯 Need: {needed} in {20-int(overs)} ov | RRR: {rr}")
+    else:
+        if t1s:
+            lines.append(f"🏏 {t1}: {t1s}")
+        if t2s:
+            lines.append(f"🏏 {t2}: {t2s}")
+    
+    lines.append(f"\n📍 *{status}*")
+    lines.append(f"\n_Updated: {last_upd}_")
+    
     return "\n".join(lines)
+
+
+def get_debug_info():
+    """Cache info for /debug command"""
+    return (
+        f"🔧 *Debug Cache*\n"
+        f"ID: {cache.get('match_id', 'None')}\n"
+        f"Active: {cache.get('match_active', False)}\n"
+        f"{cache.get('t1', '?')} vs {cache.get('t2', '?')}\n"
+        f"Status: {cache.get('status', '-')}\n"
+        f"Updated: {cache.get('last_updated', 'Never')}"
+    )
