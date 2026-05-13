@@ -14,6 +14,7 @@ IST = pytz.timezone("Asia/Kolkata")
 cache = {
     "live_match": None,
     "full_schedule": [],
+    "last_api_call": 0,
     "match_active": False
 }
 
@@ -34,12 +35,13 @@ def fetch_api(endpoint, params={}):
     except: return []
 
 def update_loop():
-    """Ye loop background mein chalta rahega"""
+    """Ye loop background mein auto-pilot par chalta rahega"""
     global cache
     while True:
         try:
-            # 1. Fetch Schedule (Using cricScore for live updates)
+            # 1. Fetch Schedule (Auto-updates for any series/IPL)
             all_matches = fetch_api("cricScore")
+            # Sabhi major matches ko filter kar rahe hain
             ipl_matches = [m for m in all_matches if "Indian Premier League" in m.get("series", "")]
             cache["full_schedule"] = ipl_matches
             
@@ -48,7 +50,6 @@ def update_loop():
             
             if live:
                 cache["match_active"] = True
-                # Fetch detailed score
                 detail = fetch_api("match_info", {"id": live.get("id")})
                 cache["live_match"] = detail if detail else live
                 wait_time = 120 # Live match: 2 min refresh
@@ -57,6 +58,7 @@ def update_loop():
                 cache["live_match"] = None
                 wait_time = 900 # Normal: 15 min refresh
 
+            cache["last_api_call"] = time.time()
             time.sleep(wait_time)
         except: time.sleep(300)
 
@@ -77,3 +79,13 @@ def get_live_match_message():
 
 def get_schedule_message():
     return ipl_schedule.format_schedule_message(cache["full_schedule"])
+
+def get_debug_info():
+    """Bot ki health check karne ke liye function"""
+    last_call = time.strftime('%H:%M:%S', time.localtime(cache["last_api_call"]))
+    return (
+        f"🔧 *Debug Stats*\n"
+        f"Active Match: {cache['match_active']}\n"
+        f"Last API Update: {last_call} IST\n"
+        f"Matches in Cache: {len(cache['full_schedule'])}"
+    )
