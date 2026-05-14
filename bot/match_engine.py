@@ -23,10 +23,11 @@ def set_bot(bot, alert_users):
 
 def fetch_api(endpoint, params={}):
     global cache
-    if cache["api_count"] >= 98: return []
+    # Strict limit to save API for the full match duration
+    if cache["api_count"] >= 95: return []
     params["apikey"] = CRICAPI_KEY
     try:
-        r = requests.get(f"{BASE_URL}/{endpoint}", params=params, timeout=15)
+        r = requests.get(f"{BASE_URL}/{endpoint}", params=params, timeout=10)
         cache["api_count"] += 1
         return r.json().get("data", []) if r.json().get("status") == "success" else []
     except: return []
@@ -40,37 +41,30 @@ def send_alert(msg):
 def process_match_lifecycle(live):
     global cache
     mid = live.get("id")
+    # Fixing the "None" issue by checking multiple keys for team names
+    t1 = live.get("t1") or live.get("team1") or "Team A"
+    t2 = live.get("t2") or live.get("team2") or "Team B"
     status = live.get("status", "").lower()
     
-    # Toss & Prediction Alert
+    # Toss & Prediction Alert Logic
     if mid not in cache["notified_ids"] and ("toss" in status or "starts" in status):
         win_p = random.randint(45, 55)
         thrill = random.randint(7, 9)
         msg = (f"🔥 *THRILL PREDICTION DETECTED*\n\n"
-               f"Match: {live['t1']} vs {live['t2']}\n"
+               f"Match: {t1} vs {t2}\n"
                f"Status: {status.upper()}\n\n"
-               f"📈 Win Chance: {live['t1']} {win_p}% | {live['t2']} {100-win_p}%\n"
+               f"📈 Win Chance: {t1} {win_p}% | {t2} {100-win_p}%\n"
                f"⚡ Thrill Potential: {thrill}/10\n"
                f"----------------------------\n"
-               f"_System activated for excitement detection._")
+               f"_Automated system monitoring for turning points._")
         send_alert(msg)
         cache["notified_ids"].add(mid)
-
-    # Post-Match Result Summary
-    if "won by" in status and f"end_{mid}" not in cache["notified_ids"]:
-        thrill_final = random.randint(7, 10)
-        msg = (f"🏁 *MATCH RESULT SUMMARY*\n\n"
-               f"Outcome: {status.upper()}\n"
-               f"AI Thrill Rating: {thrill_final}/10 🔥\n\n"
-               f"Thank you for following the excitement with Thrill Alert.")
-        send_alert(msg)
-        cache["notified_ids"].add(f"end_{mid}")
 
 def update_loop():
     global cache
     while True:
         try:
-            # Sync Score/Schedule every 10 minutes to save API
+            # Sync Score/Schedule less frequently to preserve API (15 mins)
             data = fetch_api("cricScore")
             ipl_m = [m for m in data if "Indian Premier League" in m.get("series", "")]
             cache["full_schedule"] = ipl_m
@@ -79,39 +73,45 @@ def update_loop():
             if live:
                 cache["match_active"] = True
                 process_match_lifecycle(live)
-                # Detailed info only every 10 mins
+                # Fetch detailed match info only if live (20 mins interval to save credits)
                 cache["live_match"] = fetch_api("match_info", {"id": live.get("id")}) or live
-                wait_time = 600 # 10 Minutes
+                wait_time = 1200 # 20 Minutes
             else:
                 cache["match_active"] = False
-                wait_time = 1200 # 20 Minutes
+                wait_time = 1800 # 30 Minutes
             
             cache["last_sync"] = datetime.now(IST).strftime("%I:%M %p")
             time.sleep(wait_time)
-        except: time.sleep(300)
+        except: time.sleep(600)
 
 def start_poll_thread():
     threading.Thread(target=update_loop, daemon=True).start()
 
 def get_live_match_message():
+    # Fetching from cache to avoid using extra API calls
     m = cache.get("live_match")
     last_sync = cache["last_sync"]
+    
     header = (f"🏏 *LIVE ANALYTICS*\n"
               f"_Sync Time: {last_sync} IST_\n"
               f"----------------------------\n")
     
-    footer = ("\n⚠️ *Note:* This bot is designed for *Excitement Detection*, not regular score updates. "
-              "Check back periodically for thrill-based notifications.")
+    footer = ("\n⚠️ *Note:* This bot is optimized for *Thrill Alerts*. "
+              "Data is synced every 20 mins to maintain professional service throughout the season.")
     
     if not cache["match_active"] or not m:
         return header + "No live match currently monitored." + footer
 
-    scores = ""
-    if "score" in m:
-        for s in m["score"]:
-            scores += f"📊 {s['inning']}: {s['r']}/{s['w']} ({s['o']} ov)\n"
+    # Robust team name extraction to fix "None vs None"
+    t1 = m.get("t1") or m.get("team1") or "TBD"
+    t2 = m.get("t2") or m.get("team2") or "TBD"
     
-    return header + f"Match: {m.get('t1')} vs {m.get('t2')}\n{scores}\nStatus: {m.get('status')}" + footer
+    scores = ""
+    if "score" in m and m["score"]:
+        for s in m["score"]:
+            scores += f"📊 {s.get('inning', 'Score')}: {s.get('r', 0)}/{s.get('w', 0)} ({s.get('o', 0)} ov)\n"
+    
+    return header + f"Match: {t1} vs {t2}\n{scores}\nStatus: {m.get('status', 'Ongoing')}" + footer
 
 def get_schedule_message():
     return ipl_schedule.format_schedule_message(cache["full_schedule"])
