@@ -10,23 +10,25 @@ alert_users = set()
 
 def main_menu():
     markup = InlineKeyboardMarkup()
-    markup.row(InlineKeyboardButton("🏏 Live Score", callback_data="live"), 
-               InlineKeyboardButton("📅 Full Schedule", callback_data="schedule"))
+    markup.row(InlineKeyboardButton("🏏 Live Analytics", callback_data="live"), 
+               InlineKeyboardButton("📅 Season Schedule", callback_data="schedule"))
     return markup
 
-def hide_keyboard():
-    # Ye niche ke area ko minimize rakhega
-    markup = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
-    markup.add(KeyboardButton("Menu Activated 🔓"))
+def persistent_menu():
+    # Minimizes the input bar by providing a single persistent button
+    markup = ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add(KeyboardButton("Thrill Alert Menu 🟢"))
     return markup
 
 @bot.message_handler(commands=["start"])
-def start(message):
+@bot.message_handler(func=lambda m: m.text == "Thrill Alert Menu 🟢")
+def welcome(message):
     alert_users.add(message.from_user.id)
-    # Buttons send karke keyboard ko clean rakhenge
-    bot.send_message(message.chat.id, "🏏 *Thrill Alert Activated!*", 
-                     parse_mode="Markdown", reply_markup=hide_keyboard())
-    bot.send_message(message.chat.id, "Main aapko Toss aur Result ke alerts bhejta rahoonga. Niche buttons use karein:", 
+    bot.send_message(message.chat.id, 
+                     "🏏 *Welcome to Thrill Alert Professional Interface*", 
+                     parse_mode="Markdown", reply_markup=persistent_menu())
+    bot.send_message(message.chat.id, 
+                     "Please use the buttons below for real-time analytics and schedules.", 
                      reply_markup=main_menu())
 
 @bot.callback_query_handler(func=lambda c: True)
