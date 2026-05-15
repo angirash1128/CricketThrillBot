@@ -1,178 +1,140 @@
-# database.py
-# Ye file SQLite database manage karti hai
-# Saare user data yahan save hota hai
-
 import sqlite3
 import os
 from datetime import datetime
+import pytz
 
-# Database file ka path
-DB_PATH = "cricket_thrill.db"
+IST = pytz.timezone("Asia/Kolkata")
+DB_PATH = "/tmp/thrill_bot.db"
 
-def get_connection():
-    """Database se connection banao"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row  # Results dict jaisi milein
-    return conn
+def get_conn():
+    return sqlite3.connect(DB_PATH, check_same_thread=False)
 
-def setup_database():
-    """
-    Pehli baar chalane par database aur table banao
-    Agar pehle se hai to kuch nahi hoga
-    """
-    conn = get_connection()
-    cursor = conn.cursor()
+def init_db():
+    conn = get_conn()
+    c = conn.cursor()
     
-    # Users table banao
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            name TEXT,
-            join_date TEXT,
-            favorite_team TEXT,
-            alert_preference TEXT,
-            setup_complete INTEGER DEFAULT 0,
-            last_active TEXT,
-            notifications_enabled INTEGER DEFAULT 1,
-            selected_match_id TEXT
-        )
-    ''')
+    c.execute("""CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY,
+        username TEXT,
+        subscribed INTEGER DEFAULT 1,
+        joined_at TEXT
+    )""")
+    
+    c.execute("""CREATE TABLE IF NOT EXISTS notified_alerts (
+        match_id TEXT,
+        alert_type TEXT,
+        sent_at TEXT,
+        PRIMARY KEY (match_id, alert_type)
+    )""")
+    
+    c.execute("""CREATE TABLE IF NOT EXISTS match_history (
+        match_id TEXT PRIMARY KEY,
+        team1 TEXT,
+        team2 TEXT,
+        winner TEXT,
+        thrill_score REAL,
+        result_summary TEXT,
+        played_on TEXT
+    )""")
+    
+    c.execute("""CREATE TABLE IF NOT EXISTS probability_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        match_id TEXT,
+        team1_prob REAL,
+        team2_prob REAL,
+        thrill_score REAL,
+        logged_at TEXT
+    )""")
     
     conn.commit()
     conn.close()
-    print("✅ Database ready")
 
-def user_exists(user_id):
-    """Check karo ki user pehle se registered hai ya nahi"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute(
-        "SELECT user_id FROM users WHERE user_id = ?", 
-        (user_id,)
-    )
-    result = cursor.fetchone()
+def add_user(user_id, username=""):
+    conn = get_conn()
+    c = conn.cursor()
+    now = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+    c.execute("INSERT OR IGNORE INTO users (user_id, username, subscribed, joined_at) VALUES (?, ?, 1, ?)",
+              (user_id, username, now))
+    c.execute("UPDATE users SET subscribed=1 WHERE user_id=?", (user_id,))
+    conn.commit()
     conn.close()
-    
+
+def remove_user(user_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("UPDATE users SET subscribed=0 WHERE user_id=?", (user_id,))
+    conn.commit()
+    conn.close()
+
+def get_all_subscribed_users():
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM users WHERE subscribed=1")
+    users = [row[0] for row in c.fetchall()]
+    conn.close()
+    return users
+
+def is_alert_sent(match_id, alert_type):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT 1 FROM notified_alerts WHERE match_id=? AND alert_type=?",
+              (str(match_id), alert_type))
+    result = c.fetchone()
+    conn.close()
     return result is not None
 
-def is_setup_complete(user_id):
-    """Check karo ki user ka onboarding complete hua hai ya nahi"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute(
-        "SELECT setup_complete FROM users WHERE user_id = ?", 
-        (user_id,)
-    )
-    result = cursor.fetchone()
-    conn.close()
-    
-    if result:
-        return result["setup_complete"] == 1
-    return False
-
-def create_user(user_id, name):
-    """Naya user database mein add karo"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Agar user pehle se hai to ignore karo
-    cursor.execute('''
-        INSERT OR IGNORE INTO users 
-        (user_id, name, join_date, last_active, setup_complete, notifications_enabled)
-        VALUES (?, ?, ?, ?, 0, 1)
-    ''', (user_id, name, now, now))
-    
+def mark_alert_sent(match_id, alert_type):
+    conn = get_conn()
+    c = conn.cursor()
+    now = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+    c.execute("INSERT OR IGNORE INTO notified_alerts (match_id, alert_type, sent_at) VALUES (?, ?, ?)",
+              (str(match_id), alert_type, now))
     conn.commit()
     conn.close()
 
-def update_user_field(user_id, field, value):
-    """User ka koi bhi ek field update karo"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    # last_active bhi update karo
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    cursor.execute(
-        f"UPDATE users SET {field} = ?, last_active = ? WHERE user_id = ?",
-        (value, now, user_id)
-    )
-    
+def save_match_result(match_id, team1, team2, winner, thrill_score, summary):
+    conn = get_conn()
+    c = conn.cursor()
+    now = datetime.now(IST).strftime("%Y-%m-%d")
+    c.execute("""INSERT OR REPLACE INTO match_history 
+                 (match_id, team1, team2, winner, thrill_score, result_summary, played_on) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?)""",
+              (str(match_id), team1, team2, winner, thrill_score, summary, now))
     conn.commit()
     conn.close()
 
-def complete_setup(user_id):
-    """User ka setup complete mark karo"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    cursor.execute('''
-        UPDATE users 
-        SET setup_complete = 1, last_active = ?
-        WHERE user_id = ?
-    ''', (now, user_id))
-    
+def get_today_matches():
+    conn = get_conn()
+    c = conn.cursor()
+    today = datetime.now(IST).strftime("%Y-%m-%d")
+    c.execute("SELECT team1, team2, winner, thrill_score, result_summary FROM match_history WHERE played_on=?",
+              (today,))
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+def log_probability(match_id, t1_prob, t2_prob, thrill):
+    conn = get_conn()
+    c = conn.cursor()
+    now = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+    c.execute("INSERT INTO probability_log (match_id, team1_prob, team2_prob, thrill_score, logged_at) VALUES (?, ?, ?, ?, ?)",
+              (str(match_id), t1_prob, t2_prob, thrill, now))
     conn.commit()
     conn.close()
 
-def get_user(user_id):
-    """Ek user ki saari info lao"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute(
-        "SELECT * FROM users WHERE user_id = ?", 
-        (user_id,)
-    )
-    result = cursor.fetchone()
+def get_last_probability(match_id):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""SELECT team1_prob, team2_prob, thrill_score FROM probability_log 
+                 WHERE match_id=? ORDER BY id DESC LIMIT 1""", (str(match_id),))
+    row = c.fetchone()
     conn.close()
-    
-    if result:
-        return dict(result)
-    return None
+    return row
 
-def get_all_active_users():
-    """
-    Saare active users lao jinhe alerts bhejna hai
-    setup_complete = 1 AND notifications_enabled = 1
-    """
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT user_id, name, favorite_team, alert_preference 
-        FROM users 
-        WHERE setup_complete = 1 
-        AND notifications_enabled = 1
-    ''')
-    
-    results = cursor.fetchall()
+def get_user_count():
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM users WHERE subscribed=1")
+    count = c.fetchone()[0]
     conn.close()
-    
-    return [dict(row) for row in results]
-
-def stop_notifications(user_id):
-    """User ke notifications band karo"""
-    update_user_field(user_id, "notifications_enabled", 0)
-
-def resume_notifications(user_id):
-    """User ke notifications chalu karo"""
-    update_user_field(user_id, "notifications_enabled", 1)
-
-def update_last_active(user_id):
-    """User ki last active time update karo"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    cursor.execute(
-        "UPDATE users SET last_active = ? WHERE user_id = ?",
-        (now, user_id)
-    )
-    conn.commit()
-    conn.close()
+    return count
